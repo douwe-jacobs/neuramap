@@ -1225,6 +1225,27 @@ function App() {
             transform: `translate(${galaxyPan.x}px,${galaxyPan.y}px)`,
             transition: galaxyDragStart.current ? 'none' : 'transform 0.4s cubic-bezier(0.16,1,0.3,1)',
           }}>
+            {GALAXY_MAPS.length === 0 && (
+              <div style={{
+                position: 'fixed',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                pointerEvents: 'none',
+              }}>
+                <span style={{
+                  color: 'rgba(255,255,255,0.18)',
+                  fontSize: 11,
+                  letterSpacing: '0.25em',
+                  textTransform: 'uppercase',
+                  fontFamily: 'monospace',
+                }}>
+                  Tap + to create your first map
+                </span>
+              </div>
+            )}
+
             {GALAXY_MAPS.map((mapCfg) => {
               const rootNeurons = Object.values(worlds[mapCfg.rootCluster]?.neurons || {});
               const isActive = activeGalaxyMap === mapCfg.id;
