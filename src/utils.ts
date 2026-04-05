@@ -1,15 +1,22 @@
 import { worlds, clusterMeta, CLUSTER_LISTS, GALAXY_MAPS } from './worldData';
 import type { Neuron } from './types';
 
-export const CHILD_SIZE_FACTOR = 0.74;
+export const PHI = 1.618033988749895;
+export const CHILD_SIZE_FACTOR = 1 / PHI; // ≈ 0.618
 export const CORE_SIZE = 300;
+export const BASE_AXON_LENGTH = 720; // root → depth-1 distance in world units
 
 export function sizeForDepth(depth: number): number {
-  return Math.round(CORE_SIZE * Math.pow(CHILD_SIZE_FACTOR, depth));
+  return Math.max(50, Math.round(CORE_SIZE / Math.pow(PHI, depth)));
 }
 
 export function sizeFromParent(parentSize: number): number {
-  return Math.round(parentSize * CHILD_SIZE_FACTOR);
+  return Math.max(50, Math.round(parentSize / PHI));
+}
+
+/** Axon length from a node at parentDepth to its children at parentDepth+1. */
+export function axonLengthForDepth(parentDepth: number): number {
+  return BASE_AXON_LENGTH / Math.pow(PHI, parentDepth);
 }
 
 export function getCoreId(clusterId: string): string {
@@ -240,206 +247,130 @@ function countDescendants(neurons: Record<string, Neuron>, id: string): number {
 }
 
 export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions = false): void {
-  const MIN_NODE_DIST = 280;
-
   const coreNode = Object.values(neurons).find(n => n.isCore);
   if (!coreNode) return;
 
-  const placed = new Set<string>([coreNode.id]);
+  // ── Step 1: BFS depth assignment ────────────────────────────────────────────
   const depths: Record<string, number> = { [coreNode.id]: 0 };
-  const queue: string[] = [coreNode.id];
-
-  if (preservePositions) {
-    for (const n of Object.values(neurons)) {
-      if (!n.isCore && (Math.abs(n.x) > 10 || Math.abs(n.y) > 10)) {
-        placed.add(n.id);
+  {
+    const q: string[] = [coreNode.id];
+    while (q.length > 0) {
+      const id = q.shift()!;
+      for (const cid of neurons[id]?.children || []) {
+        if (neurons[cid] && depths[cid] === undefined) {
+          depths[cid] = depths[id] + 1;
+          q.push(cid);
+        }
       }
     }
   }
 
-  while (queue.length > 0) {
-    const parentId = queue.shift()!;
+  // ── Step 2: Update sizes — depth N → CORE_SIZE / phi^N ──────────────────────
+  for (const n of Object.values(neurons)) {
+    n.size = sizeForDepth(depths[n.id] ?? 1);
+  }
+
+  // ── Step 3: Nodes to keep fixed (preservePositions mode) ────────────────────
+  const locked = new Set<string>();
+  if (preservePositions) {
+    for (const n of Object.values(neurons)) {
+      if (!n.isCore && (Math.abs(n.x) > 10 || Math.abs(n.y) > 10)) {
+        locked.add(n.id);
+      }
+    }
+  }
+
+  // ── Step 4: Place root at origin ────────────────────────────────────────────
+  coreNode.x = 0;
+  coreNode.y = 0;
+
+  // ── Step 5: BFS placement with golden-ratio sectors ─────────────────────────
+  //
+  // For a node at depth D with C children:
+  //   • If it's the root: distribute C children evenly around 360°.
+  //   • Otherwise: C children + 1 parent direction = C+1 equal sectors.
+  //     The parent sector is centred on θ_back (direction back to parent).
+  //     C children are distributed symmetrically around θ_outward (= θ_back + π),
+  //     each separated by sectorSize = 2π/(C+1).
+  //
+  // Axon length from parent at depth D to its children: BASE / phi^D
+
+  interface Task { parentId: string; depth: number; }
+  const workQueue: Task[] = [{ parentId: coreNode.id, depth: 0 }];
+
+  while (workQueue.length > 0) {
+    const { parentId, depth } = workQueue.shift()!;
     const parent = neurons[parentId];
     if (!parent) continue;
 
-    const allChildren = (parent.children || []).filter(cid => neurons[cid]);
-    const unplaced = allChildren.filter(cid => !placed.has(cid));
-    if (unplaced.length === 0) continue;
+    const children = (parent.children || []).filter(cid => neurons[cid]);
+    if (children.length === 0) continue;
 
-    const depth = depths[parentId] ?? 0;
-    const isRoot = depth === 0;
+    const C = children.length;
+    const axonLen = axonLengthForDepth(depth);
 
-    const grandparent = parent.parentId ? neurons[parent.parentId] : null;
-    const incomingAngle: number = grandparent
-      ? Math.atan2(parent.y - grandparent.y, parent.x - grandparent.x)
-      : -Math.PI / 2;
+    let childAngles: number[];
 
-    const withMeta = allChildren.map(cid => ({
-      cid,
-      hasChildren: (neurons[cid]?.children?.length ?? 0) > 0,
-      desc: countDescendants(neurons, cid),
-    }));
-
-    const branchCount = withMeta.filter(m => m.hasChildren).length;
-    const leafCount = withMeta.filter(m => !m.hasChildren).length;
-    const total = allChildren.length;
-
-    const angleSlot = (2 * Math.PI) / total;
-
-    const assignedAngles: Array<{ cid: string; angle: number; minDist: number; maxDist: number }> = [];
-
-    if (isRoot) {
-      const goldenAngle = 2.39996;
-      const baseOffset = Math.PI * 0.17;
-      const branchItems = withMeta.filter(m => m.hasChildren);
-      const leafItems = withMeta.filter(m => !m.hasChildren);
-
-      for (let i = 0; i < branchItems.length; i++) {
-        const { cid, desc } = branchItems[i];
-        const angle = i * goldenAngle + baseOffset;
-        const minDist = 680 + desc * 18 + i * 45;
-        const maxDist = 920 + desc * 18 + i * 45;
-        assignedAngles.push({ cid, angle, minDist, maxDist });
-      }
-      for (let i = 0; i < leafItems.length; i++) {
-        const { cid } = leafItems[i];
-        const angle = (branchItems.length + i) * goldenAngle + baseOffset + Math.PI * 0.4;
-        assignedAngles.push({ cid, angle, minDist: 420, maxDist: 580 });
-      }
+    if (parent.isCore) {
+      // Root: evenly around full circle, starting straight up
+      const sectorSize = (2 * Math.PI) / C;
+      childAngles = children.map((_, i) => -Math.PI / 2 + i * sectorSize);
     } else {
-      const outwardAngle = incomingAngle;
-      const sideSpread = Math.PI * 0.65;
-
-      const branchAngles: number[] = [];
-      const leafAngles: number[] = [];
-
-      if (branchCount > 0) {
-        for (let i = 0; i < branchCount; i++) {
-          const t = branchCount === 1 ? 0 : (i / (branchCount - 1) - 0.5);
-          let a = outwardAngle + t * sideSpread * 0.7;
-          const normBack = ((a - (incomingAngle + Math.PI) + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-          if (Math.abs(normBack) < 0.35) a += normBack < 0 ? -0.4 : 0.4;
-          branchAngles.push(a);
-        }
-      }
-
-      const forwardSpread = Math.PI * 0.75;
-      const forwardCapacity = Math.max(1, Math.round(forwardSpread / (Math.PI / 4)));
-      const needsBackFill = grandparent !== null && leafCount > forwardCapacity;
-
-      if (needsBackFill) {
-        const backAngle = incomingAngle + Math.PI;
-        const blockedAngles = [backAngle, ...branchAngles];
-        const blockRadius = 0.55;
-
-        const norm = (a: number) => ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-        const blocked = blockedAngles.map(norm).sort((a, b) => a - b);
-
-        const gaps: Array<{ start: number; end: number; size: number }> = [];
-        for (let i = 0; i < blocked.length; i++) {
-          const start = blocked[i] + blockRadius;
-          const end = blocked[(i + 1) % blocked.length] + (i + 1 < blocked.length ? 0 : Math.PI * 2) - blockRadius;
-          if (end > start + 0.1) gaps.push({ start, end, size: end - start });
-        }
-
-        const totalGapSize = gaps.reduce((s, g) => s + g.size, 0);
-        let remaining = leafCount;
-        const gapLeafCounts = gaps.map(g => {
-          const share = Math.round((g.size / totalGapSize) * leafCount);
-          return Math.min(share, remaining);
-        });
-        let placed2 = gapLeafCounts.reduce((s, c) => s + c, 0);
-        let gi = 0;
-        while (placed2 < leafCount) { gapLeafCounts[gi++ % gaps.length]++; placed2++; }
-
-        for (let gi2 = 0; gi2 < gaps.length; gi2++) {
-          const gap = gaps[gi2];
-          const count = gapLeafCounts[gi2];
-          if (count === 0) continue;
-          for (let k = 0; k < count; k++) {
-            const t = count === 1 ? 0.5 : k / (count - 1);
-            leafAngles.push(gap.start + t * (gap.end - gap.start));
-          }
-        }
+      // Non-root: C+1 sectors, one for parent direction, C for children
+      const sectorSize = (2 * Math.PI) / (C + 1);
+      const gp = parent.parentId ? neurons[parent.parentId] : null;
+      if (!gp) {
+        // Defensive fallback: treat as root
+        const s = (2 * Math.PI) / C;
+        childAngles = children.map((_, i) => -Math.PI / 2 + i * s);
       } else {
-        for (let i = 0; i < leafCount; i++) {
-          const t = leafCount === 1 ? 0 : (i / (leafCount - 1) - 0.5);
-          leafAngles.push(outwardAngle + t * sideSpread);
-        }
-      }
-
-      let bi = 0;
-      let li = 0;
-      for (const { cid, hasChildren, desc } of withMeta) {
-        const angle = hasChildren ? branchAngles[bi++] : leafAngles[li++];
-        const minDist = hasChildren ? 420 + desc * 20 : 280;
-        const maxDist = hasChildren ? 600 + desc * 20 : 380;
-        assignedAngles.push({ cid, angle: angle ?? outwardAngle, minDist, maxDist });
+        // θ_back: direction from this node toward its parent (grandparent of children)
+        const θ_back = Math.atan2(gp.y - parent.y, gp.x - parent.x);
+        // θ_outward: away from grandparent
+        const θ_outward = θ_back + Math.PI;
+        // Spread children symmetrically around θ_outward
+        childAngles = children.map((_, i) => θ_outward + (i - (C - 1) / 2) * sectorSize);
       }
     }
 
-    const sortedAngles = [...assignedAngles].sort((a, b) => {
-      const aHasChildren = (neurons[a.cid]?.children?.length ?? 0) > 0;
-      const bHasChildren = (neurons[b.cid]?.children?.length ?? 0) > 0;
-      if (aHasChildren && !bHasChildren) return -1;
-      if (!aHasChildren && bHasChildren) return 1;
-      return 0;
-    });
-    for (const { cid, angle, minDist, maxDist } of sortedAngles) {
-      if (placed.has(cid)) continue;
+    // Place each child
+    for (let i = 0; i < children.length; i++) {
+      const cid = children[i];
+      if (locked.has(cid)) {
+        workQueue.push({ parentId: cid, depth: depth + 1 });
+        continue;
+      }
       const child = neurons[cid];
-      depths[cid] = depth + 1;
-      let placed_pos: { x: number; y: number } | null = null;
+      const angle = childAngles[i];
+      child.x = Math.round(parent.x + Math.cos(angle) * axonLen);
+      child.y = Math.round(parent.y + Math.sin(angle) * axonLen);
+      workQueue.push({ parentId: cid, depth: depth + 1 });
+    }
+  }
 
-      outer: for (let di = 0; di < 10; di++) {
-        const dist = minDist + (di / 9) * (maxDist - minDist);
+  // ── Step 6: Collision avoidance — push overlapping nodes apart ───────────────
+  const allNodes = Object.values(neurons);
+  const MIN_GAP = 55; // minimum clearance between node surfaces
 
-        for (let ai = 0; ai < (isRoot ? 1 : 7); ai++) {
-          const side = ai % 2 === 0 ? 1 : -1;
-          const aw = ai === 0 ? 0 : Math.ceil(ai / 2) * 0.1 * side;
-          const a = angle + aw;
-          const cx = Math.round(parent.x + Math.cos(a) * dist);
-          const cy = Math.round(parent.y + Math.sin(a) * dist);
-
-          const tooClose = Object.values(neurons).some(n => {
-            if (!placed.has(n.id) && n.id !== cid) return false;
-            return Math.hypot(n.x - cx, n.y - cy) < MIN_NODE_DIST;
-          });
-          if (tooClose) continue;
-
-          let wouldCross = false;
-          for (const n of Object.values(neurons)) {
-            if (!placed.has(n.id)) continue;
-            for (const existingCid of n.children || []) {
-              const ec = neurons[existingCid];
-              if (!ec || !placed.has(existingCid)) continue;
-              if (n.id === parentId || existingCid === parentId) continue;
-              if (segmentsIntersect(parent.x, parent.y, cx, cy, n.x, n.y, ec.x, ec.y)) {
-                wouldCross = true;
-                break;
-              }
-            }
-            if (wouldCross) break;
-          }
-          if (wouldCross) continue;
-
-          placed_pos = { x: cx, y: cy };
-          break outer;
+  for (let iter = 0; iter < 30; iter++) {
+    let moved = false;
+    for (let i = 0; i < allNodes.length - 1; i++) {
+      for (let j = i + 1; j < allNodes.length; j++) {
+        const a = allNodes[i];
+        const b = allNodes[j];
+        const minDist = a.size / 2 + MIN_GAP + b.size / 2;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist < minDist) {
+          const push = (minDist - dist) / (2 * dist);
+          if (!a.isCore) { a.x = Math.round(a.x - dx * push); a.y = Math.round(a.y - dy * push); }
+          if (!b.isCore) { b.x = Math.round(b.x + dx * push); b.y = Math.round(b.y + dy * push); }
+          moved = true;
         }
       }
-
-      if (!placed_pos) {
-        placed_pos = {
-          x: Math.round(parent.x + Math.cos(angle) * minDist),
-          y: Math.round(parent.y + Math.sin(angle) * minDist),
-        };
-      }
-
-      child.x = placed_pos.x;
-      child.y = placed_pos.y;
-      placed.add(cid);
-      queue.push(cid);
     }
+    if (!moved) break;
   }
 }
 

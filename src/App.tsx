@@ -19,6 +19,7 @@ import { pushUndo, performUndo, canUndo, setOnUndoAvailable } from './undoHistor
 import {
   getCoreId, getMapForCluster, spreadClusterY, findNeuronInDirection,
   getClusterCrumbs, getLineage, generateNodeId, findRelatedNodeId, positionNearNode,
+  reflowNeurons, sizeForDepth, sizeFromParent,
 } from './utils';
 import type { AppState, AppAction, NeuronContent } from './types';
 
@@ -925,15 +926,14 @@ function App() {
         }
 
         const parent = worlds[targetCluster].neurons[parentId];
-        const pos = positionNearNode(targetCluster, parentId);
-        const depth = parent ? (parent.parentId ? 2 : 1) : 0;
-        const baseSize = parent?.isCore ? 164 : parent ? Math.round(parent.size * 0.74) : 120;
+        // Size and position are computed by reflowNeurons after the full
+        // structure is built — set placeholder values here.
         worlds[targetCluster].neurons[newId] = {
           id: newId,
           label: def.label.toUpperCase(),
-          size: depth >= 2 ? Math.max(60, baseSize) : baseSize,
-          x: pos.x,
-          y: pos.y,
+          size: sizeForDepth(1),
+          x: 0,
+          y: 0,
           parentId,
           content: { body: bodyText },
         };
@@ -945,6 +945,9 @@ function App() {
 
         lastAddedId = newId;
       }
+
+      // Apply golden-ratio layout to the whole cluster in one pass
+      reflowNeurons(worlds[targetCluster].neurons);
 
       Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
       await saveWorldToStorage(targetCluster);
@@ -987,7 +990,7 @@ function App() {
       worlds[targetCluster].neurons[newId] = {
         id: newId,
         label: def.label.toUpperCase(),
-        size: parent ? Math.round(parent.size * 0.74) : 164,
+        size: parent ? sizeFromParent(parent.size) : sizeForDepth(1),
         x: pos.x,
         y: pos.y,
         parentId,
@@ -1014,7 +1017,7 @@ function App() {
     pushUndo(currentCluster);
     const newId = generateNodeId();
     const parent = neurons[parentId];
-    const childSize = Math.round(parent.size * 0.74);
+    const childSize = sizeFromParent(parent.size);
     const pos = positionNearNode(currentCluster, parentId);
     neurons[newId] = {
       id: newId,
