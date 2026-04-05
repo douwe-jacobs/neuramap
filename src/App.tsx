@@ -14,6 +14,7 @@ import { StarField } from './StarField';
 import { getNodeColor, getNodePalette, hslToRgb } from './colors';
 import { worlds, clusterMeta, GALAXY_MAPS, CLUSTER_LISTS, _worldColorCache } from './worldData';
 import { loadFromStorage, saveWorldToStorage, deleteMapFromStorage, saveMapToStorage } from './storage';
+import { supabase } from './supabase';
 import { pushUndo, performUndo, canUndo, setOnUndoAvailable } from './undoHistory';
 import {
   getCoreId, getMapForCluster, spreadClusterY, findNeuronInDirection,
@@ -98,7 +99,23 @@ function NeuraLogo({ onClick }: { onClick: () => void }) {
 
 function AppLoader() {
   const [hydrated, setHydrated] = useState(false);
-  useEffect(() => { loadFromStorage().then(() => setHydrated(true)); }, []);
+
+  useEffect(() => {
+    // Sign in anonymously (no-op if a session already exists), then load data.
+    // onAuthStateChange fires synchronously with the existing session when there
+    // is one, so this path is instant for returning users.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        await loadFromStorage();
+        setHydrated(true);
+      }
+    });
+
+    supabase.auth.signInAnonymously();
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   if (!hydrated) return (
     <div style={{ position: 'fixed', inset: 0, height: '100dvh', background: 'rgb(2,4,8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{ color: 'rgba(255,255,255,0.15)', fontSize: 11, letterSpacing: '0.3em', textTransform: 'uppercase', fontFamily: 'monospace' }}>loading</div>
