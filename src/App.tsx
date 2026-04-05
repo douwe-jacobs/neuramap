@@ -1421,7 +1421,7 @@ function App() {
                 boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
               }}
             >
-              Klaar
+              Done
             </button>
           )}
 
@@ -1451,10 +1451,10 @@ function App() {
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0,
             }}>
               <div style={{ fontSize: 11, letterSpacing: '0.22em', textTransform: 'uppercase', color: 'rgba(180,185,195,0.7)', marginBottom: 18, fontWeight: 600 }}>
-                Delete Neuramap
+                Delete map
               </div>
               <div style={{ fontSize: 16, color: 'rgba(230,232,238,0.92)', textAlign: 'center', lineHeight: 1.55, marginBottom: 28 }}>
-                Are you sure you want to delete this neuramap? This can not be undone.
+                Are you sure you want to delete this map? This cannot be undone.
               </div>
               <div style={{ display: 'flex', gap: 12, width: '100%' }}>
                 <button

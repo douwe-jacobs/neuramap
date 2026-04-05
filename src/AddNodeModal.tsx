@@ -58,7 +58,7 @@ export function AddNodeModal({ onConfirm, onCancel }: AddNodeModalProps) {
               ref={labelRef}
               value={label}
               onChange={e => setLabel(e.target.value)}
-              placeholder="Naam van de neuron..."
+              placeholder="Neuron name..."
               style={{
                 width: '100%',
                 background: 'rgba(255,255,255,0.05)',
@@ -83,7 +83,7 @@ export function AddNodeModal({ onConfirm, onCancel }: AddNodeModalProps) {
             <textarea
               value={insight}
               onChange={e => setInsight(e.target.value)}
-              placeholder="Voeg een notitie of inzicht toe..."
+              placeholder="Add a note or insight..."
               rows={4}
               style={{
                 width: '100%',
@@ -126,7 +126,7 @@ export function AddNodeModal({ onConfirm, onCancel }: AddNodeModalProps) {
               onMouseEnter={e => { (e.target as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; (e.target as HTMLButtonElement).style.color = 'rgba(255,255,255,0.8)'; }}
               onMouseLeave={e => { (e.target as HTMLButtonElement).style.background = 'transparent'; (e.target as HTMLButtonElement).style.color = 'rgba(255,255,255,0.5)'; }}
             >
-              Annuleren
+              Cancel
             </button>
             <button
               type="submit"
@@ -146,7 +146,7 @@ export function AddNodeModal({ onConfirm, onCancel }: AddNodeModalProps) {
                 transition: 'background 0.15s ease, color 0.15s ease',
               }}
             >
-              Aanmaken
+              Create
             </button>
           </div>
         </form>

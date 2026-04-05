@@ -434,7 +434,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
               <input
                 value={editLabel}
                 onChange={e => setEditLabel(e.target.value)}
-                className="flex-1 mr-3 bg-transparent outline-none uppercase font-black text-[12px]"
+                className="flex-1 min-w-0 mr-3 bg-transparent outline-none uppercase font-black text-[12px]"
                 style={{
                   letterSpacing: '0.35em',
                   color: `rgba(${nodeColor},1)`,
@@ -447,7 +447,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
               />
             ) : (
               <p
-                className="uppercase font-black text-[12px] flex-1 mr-3"
+                className="uppercase font-black text-[12px] flex-1 min-w-0 mr-3 truncate"
                 style={{
                   letterSpacing: '0.35em',
                   color: `rgba(${nodeColor},1)`,
@@ -473,7 +473,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
                     onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = 'rgba(255,255,255,0.65)'; }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; }}
                   >
-                    <X size={11} /> <span className="hidden sm:inline">Annuleer</span>
+                    <X size={11} /> <span className="hidden sm:inline">Cancel</span>
                   </button>
                   <button
                     onClick={handleSave}
@@ -488,7 +488,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
                     onMouseEnter={e => { e.currentTarget.style.background = `rgba(${nodeColor},0.2)`; e.currentTarget.style.boxShadow = `0 0 20px rgba(${nodeColor},0.3)`; }}
                     onMouseLeave={e => { e.currentTarget.style.background = `rgba(${nodeColor},0.12)`; e.currentTarget.style.boxShadow = `0 0 12px rgba(${nodeColor},0.15)`; }}
                   >
-                    <Check size={11} /> <span className="hidden sm:inline">Opslaan</span>
+                    <Check size={11} /> <span className="hidden sm:inline">Save</span>
                   </button>
                 </>
               ) : (
@@ -506,7 +506,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
                     onMouseEnter={e => { e.currentTarget.style.background = `rgba(${nodeColor},0.16)`; e.currentTarget.style.boxShadow = `0 0 18px rgba(${nodeColor},0.25)`; e.currentTarget.style.borderColor = `rgba(${nodeColor},0.4)`; }}
                     onMouseLeave={e => { e.currentTarget.style.background = `rgba(${nodeColor},0.08)`; e.currentTarget.style.boxShadow = `0 0 10px rgba(${nodeColor},0.1)`; e.currentTarget.style.borderColor = `rgba(${nodeColor},0.22)`; }}
                   >
-                    <Pencil size={11} /> <span className="hidden sm:inline">Bewerk</span>
+                    <Pencil size={11} /> <span className="hidden sm:inline">Edit</span>
                   </button>
                   <button
                     onClick={onClose}
@@ -701,7 +701,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
                     autoFocus
                     value={editBody}
                     onChange={e => setEditBody(e.target.value)}
-                    placeholder="Schrijf je notitie hier..."
+                    placeholder="Write your note here..."
                     rows={Math.max(5, (editBody.split('\n').length) + 5)}
                     className="w-full resize-none text-[14px] leading-relaxed px-4 py-3 outline-none"
                     style={{

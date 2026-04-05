@@ -838,7 +838,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
             backdropFilter: 'blur(10px)',
           }}
         >
-          Klaar
+          Done
         </button>
       </div>
     </div>

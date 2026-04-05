@@ -68,7 +68,7 @@ export function AddMapModal({ onConfirm, onCancel }: AddMapModalProps) {
           color: `rgba(${TEAL},0.9)`,
           marginBottom: 22,
         }}>
-          Nieuwe map
+          New map
         </p>
         <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
           <div style={{ marginBottom: 18 }}>
@@ -76,7 +76,7 @@ export function AddMapModal({ onConfirm, onCancel }: AddMapModalProps) {
               ref={labelRef}
               value={label}
               onChange={e => setLabel(e.target.value)}
-              placeholder="Naam van de map..."
+              placeholder="Map name..."
               style={{
                 width: '100%',
                 background: 'rgba(255,255,255,0.05)',
@@ -103,7 +103,7 @@ export function AddMapModal({ onConfirm, onCancel }: AddMapModalProps) {
             <textarea
               value={insight}
               onChange={e => setInsight(e.target.value)}
-              placeholder="Voeg een notitie of inzicht toe..."
+              placeholder="Add a note or insight..."
               rows={4}
               style={{
                 width: '100%',
@@ -147,7 +147,7 @@ export function AddMapModal({ onConfirm, onCancel }: AddMapModalProps) {
               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.06)'; (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.8)'; }}
               onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.5)'; }}
             >
-              Annuleren
+              Cancel
             </button>
             <button
               type="submit"
@@ -167,7 +167,7 @@ export function AddMapModal({ onConfirm, onCancel }: AddMapModalProps) {
                 transition: 'background 0.15s ease, color 0.15s ease',
               }}
             >
-              {saving ? '...' : 'Aanmaken'}
+              {saving ? '...' : 'Create'}
             </button>
           </div>
         </form>
