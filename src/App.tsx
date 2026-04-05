@@ -101,19 +101,22 @@ function AppLoader() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    // Sign in anonymously (no-op if a session already exists), then load data.
-    // onAuthStateChange fires synchronously with the existing session when there
-    // is one, so this path is instant for returning users.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session) {
+    let cancelled = false;
+
+    const init = async () => {
+      // Reuse existing session on refresh; create a new anonymous one on first load.
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        await supabase.auth.signInAnonymously();
+      }
+      if (!cancelled) {
         await loadFromStorage();
         setHydrated(true);
       }
-    });
+    };
 
-    supabase.auth.signInAnonymously();
-
-    return () => subscription.unsubscribe();
+    init();
+    return () => { cancelled = true; };
   }, []);
 
   if (!hydrated) return (
