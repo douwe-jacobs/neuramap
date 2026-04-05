@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { worlds, clusterMeta, GALAXY_MAPS, CLUSTER_LISTS, _worldColorCache, SEED_MAPS, SEED_WORLDS, SEED_CLUSTER_META } from './worldData';
+import { worlds, clusterMeta, GALAXY_MAPS, CLUSTER_LISTS, _worldColorCache } from './worldData';
 import type { MapDef } from './types';
 
 
@@ -7,8 +7,7 @@ export async function loadFromStorage(): Promise<void> {
   try {
     const { data: indexRow } = await supabase.from('neura_storage').select('value').eq('key', 'maps:index').maybeSingle();
     if (!indexRow) {
-      await seedStorage();
-      return;
+      return; // New user — start with an empty canvas
     }
     const index: MapDef[] = JSON.parse(indexRow.value);
     GALAXY_MAPS.length = 0;
@@ -29,25 +28,7 @@ export async function loadFromStorage(): Promise<void> {
 
     Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
   } catch (e) {
-    console.warn('Storage load failed, using seed data:', e);
-  }
-}
-
-export async function seedStorage(): Promise<void> {
-  try {
-    const upsert = async (key: string, value: string) => {
-      const { error } = await supabase.from('neura_storage').upsert({ key, value }, { onConflict: 'user_id,key' });
-      if (error) throw error;
-    };
-    await upsert('maps:index', JSON.stringify(SEED_MAPS));
-    for (const mapDef of SEED_MAPS) {
-      for (const clusterId of (mapDef.clusterIds || [mapDef.rootCluster])) {
-        if (SEED_WORLDS[clusterId]) await upsert(`world:${clusterId}`, JSON.stringify(SEED_WORLDS[clusterId]));
-        if (SEED_CLUSTER_META[clusterId]) await upsert(`meta:${clusterId}`, JSON.stringify(SEED_CLUSTER_META[clusterId]));
-      }
-    }
-  } catch (e) {
-    console.warn('Seed storage failed:', e);
+    console.warn('Storage load failed:', e);
   }
 }
 
