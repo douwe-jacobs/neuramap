@@ -36,7 +36,7 @@ export async function loadFromStorage(): Promise<void> {
 export async function seedStorage(): Promise<void> {
   try {
     const upsert = async (key: string, value: string) => {
-      const { error } = await supabase.from('neura_storage').upsert({ key, value }, { onConflict: 'key' });
+      const { error } = await supabase.from('neura_storage').upsert({ key, value }, { onConflict: 'user_id,key' });
       if (error) throw error;
     };
     await upsert('maps:index', JSON.stringify(SEED_MAPS));
@@ -58,7 +58,7 @@ export async function saveWorldToStorage(clusterId: string): Promise<void> {
         .from('neura_storage')
         .upsert(
           { key: `world:${clusterId}`, value: JSON.stringify(worlds[clusterId]) },
-          { onConflict: 'key' }
+          { onConflict: 'user_id,key' }
         );
       if (error) throw error;
     }
@@ -84,7 +84,7 @@ export async function deleteMapFromStorage(mapId: string): Promise<void> {
       delete clusterMeta[cid];
     }
     const newIndex = index.filter(m => m.id !== mapId);
-    await supabase.from('neura_storage').upsert({ key: 'maps:index', value: JSON.stringify(newIndex) }, { onConflict: 'key' });
+    await supabase.from('neura_storage').upsert({ key: 'maps:index', value: JSON.stringify(newIndex) }, { onConflict: 'user_id,key' });
     const gIdx = GALAXY_MAPS.findIndex(m => m.id === mapId);
     if (gIdx >= 0) GALAXY_MAPS.splice(gIdx, 1);
     delete CLUSTER_LISTS[mapId];
@@ -102,7 +102,7 @@ export async function saveMapToStorage(mapDef: MapDef, worldsData: Record<string
     const existing = index.findIndex(m => m.id === mapDef.id);
     if (existing >= 0) index[existing] = mapDef; else index.push(mapDef);
     const upsert = async (key: string, value: string) => {
-      const { error } = await supabase.from('neura_storage').upsert({ key, value }, { onConflict: 'key' });
+      const { error } = await supabase.from('neura_storage').upsert({ key, value }, { onConflict: 'user_id,key' });
       if (error) throw error;
     };
     await upsert('maps:index', JSON.stringify(index));
