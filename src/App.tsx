@@ -147,8 +147,9 @@ function App() {
   showOverlayRef.current   = showOverlay;
 
   const mainContainerRef = useRef<HTMLDivElement | null>(null);
-  const touchStart    = useRef<{ x: number; y: number } | null>(null);
-  const initialDist   = useRef<number | null>(null);
+  const touchStart       = useRef<{ x: number; y: number } | null>(null);
+  const initialDist      = useRef<number | null>(null);
+  const twoFingerMidRef  = useRef<{ x: number; y: number } | null>(null);
   const epochRef      = useRef(Date.now());
   const pendingTarget = useRef<string | null>(null);
   const [highlightedTarget, setHighlightedTarget] = useState<string | null>(null);
@@ -421,10 +422,10 @@ function App() {
     setPanOffset(null);
     setPanSnapId(null);
     if (target !== ai) {
-      snapZoomToDefault();
+      // Panning/scrolling through neurons keeps current zoom — only direct tap/click resets it
       dispatch({ type: 'NAVIGATE_TO', cluster: cc, nodeId: target });
     }
-  }, [findNeuronNearestCenter, snapZoomToDefault]);
+  }, [findNeuronNearestCenter]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     if (showOverlay) return;
@@ -623,11 +624,7 @@ function App() {
         if (angles[e.key] !== undefined) {
           const target = findNeuronInDirection(angles[e.key], ai, neurons);
           if (target) {
-            if (DISABLE_CLUSTER_VIEW && neuronZoomRef.current < ZOOM_DEFAULT) {
-              neuronZoomRef.current = ZOOM_DEFAULT;
-              setNeuronZoom(ZOOM_DEFAULT);
-              saveZoomForCluster(cc, ZOOM_DEFAULT);
-            }
+            // Arrow key navigation keeps current zoom — only Enter/click resets it
             dispatch({ type: 'NAVIGATE_TO', cluster: cc, nodeId: target });
           }
         }
@@ -641,6 +638,10 @@ function App() {
     if (showOverlay) return;
     if (e.touches.length === 2) {
       initialDist.current = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
+      twoFingerMidRef.current = {
+        x: (e.touches[0].pageX + e.touches[1].pageX) / 2,
+        y: (e.touches[0].pageY + e.touches[1].pageY) / 2,
+      };
       touchStart.current = null;
       if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
     } else {
@@ -675,13 +676,27 @@ function App() {
       const ratio = currentDist / initialDist.current;
       if (DISABLE_CLUSTER_VIEW) {
         if (vm === 'neuron') {
+          const cc = currentClusterRef.current;
+          const ai = activeIdRef.current;
+          // Two-finger pan: move canvas by midpoint delta each frame
+          const newMidX = (e.touches[0].pageX + e.touches[1].pageX) / 2;
+          const newMidY = (e.touches[0].pageY + e.touches[1].pageY) / 2;
+          if (twoFingerMidRef.current) {
+            const panDx = newMidX - twoFingerMidRef.current.x;
+            const panDy = newMidY - twoFingerMidRef.current.y;
+            const zoom = neuronZoomRef.current;
+            const base = panOffsetRef.current ?? { x: worlds[cc]?.neurons?.[ai]?.x ?? 0, y: worlds[cc]?.neurons?.[ai]?.y ?? 0 };
+            const newOffset = { x: base.x - panDx / zoom, y: base.y - panDy / zoom };
+            panOffsetRef.current = newOffset;
+            setPanOffset({ ...newOffset });
+          }
+          twoFingerMidRef.current = { x: newMidX, y: newMidY };
+          // Pinch zoom
           const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, neuronZoomRef.current * ratio));
           neuronZoomRef.current = newZoom;
           setNeuronZoom(newZoom);
-          saveZoomForCluster(currentClusterRef.current, newZoom);
+          saveZoomForCluster(cc, newZoom);
           initialDist.current = currentDist;
-          const ai = activeIdRef.current;
-          const cc = currentClusterRef.current;
           const currentOffset = panOffsetRef.current ?? { x: worlds[cc]?.neurons?.[ai]?.x ?? 0, y: worlds[cc]?.neurons?.[ai]?.y ?? 0 };
           const snapId = findNeuronNearestCenter(currentOffset, cc, ai, newZoom);
           setPanSnapId(snapId !== ai ? snapId : null);
@@ -720,23 +735,52 @@ function App() {
   }, [handleTouchMoveLogic]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    const wasTwoFinger = twoFingerMidRef.current !== null;
     initialDist.current = null;
+    twoFingerMidRef.current = null;
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
     longPressStart.current = null;
     if (jiggleModeRef.current) return;
     if (showOverlay) return;
     const vm = viewModeRef.current;
     const cc = currentClusterRef.current;
+
+    // Two-finger gesture ended — snap canvas to nearest neuron, keep zoom
+    if (wasTwoFinger) {
+      if (panIdleTimer.current) clearTimeout(panIdleTimer.current);
+      commitPanSnap();
+      return;
+    }
+
     if (vm === 'galaxy') { touchStart.current = null; return; }
     const dest = pendingTarget.current;
     pendingTarget.current = null;
     setHighlightedTarget(null);
     dispatch({ type: 'SET_SELECTED_TARGET', payload: null });
     if (vm === 'cluster') { touchStart.current = null; return; }
-    if (!dest || vm !== 'neuron') return;
-    snapZoomToDefault();
+    if (vm !== 'neuron' || !touchStart.current) { touchStart.current = null; return; }
+
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStart.current.x;
+    const dy = touch.clientY - touchStart.current.y;
+    touchStart.current = null;
+
+    if (Math.hypot(dx, dy) < 20) {
+      // Tap — check if finger landed directly on a neuron node
+      const el = document.elementFromPoint(touch.clientX, touch.clientY);
+      const nodeEl = el?.closest?.('[data-nodeid]') as HTMLElement | null;
+      const nodeId = nodeEl?.dataset?.nodeid;
+      if (nodeId && nodeId !== activeIdRef.current) {
+        snapZoomToDefault(); // Direct tap on a neuron resets zoom
+        dispatch({ type: 'NAVIGATE_TO', cluster: cc, nodeId });
+      }
+      return;
+    }
+
+    // Swipe through axon — navigate without resetting zoom
+    if (!dest) return;
     dispatch({ type: 'NAVIGATE_TO', cluster: cc, nodeId: dest });
-  }, [showOverlay, snapZoomToDefault]);
+  }, [showOverlay, commitPanSnap, snapZoomToDefault]);
 
   useEffect(() => {
     const el = mainContainerRef.current;
