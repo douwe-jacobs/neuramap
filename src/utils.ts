@@ -7,7 +7,8 @@ export const CORE_SIZE = 300;
 export const BASE_AXON_LENGTH = 720; // root → depth-1 distance in world units
 
 export function sizeForDepth(depth: number): number {
-  return Math.max(50, Math.round(CORE_SIZE / Math.pow(PHI, depth)));
+  // Rule 6: sqrt(phi) ≈ 1.272 ratio — clear hierarchy without being too dramatic
+  return Math.max(50, Math.round(CORE_SIZE / Math.pow(Math.sqrt(PHI), depth)));
 }
 
 export function sizeFromParent(parentSize: number): number {
@@ -246,6 +247,15 @@ function countDescendants(neurons: Record<string, Neuron>, id: string): number {
   return children.reduce((sum, cid) => sum + 1 + countDescendants(neurons, cid), 0);
 }
 
+/** Deterministic hash: node id → float in [0, 1) */
+function hashId(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) {
+    h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
+  }
+  return (h >>> 0) / 4294967296;
+}
+
 export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions = false): void {
   const coreNode = Object.values(neurons).find(n => n.isCore);
   if (!coreNode) return;
@@ -284,16 +294,20 @@ export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions
   coreNode.x = 0;
   coreNode.y = 0;
 
-  // ── Step 5: BFS placement with golden-ratio sectors ─────────────────────────
+  // ── Step 5: BFS placement ────────────────────────────────────────────────────
   //
-  // For a node at depth D with C children:
-  //   • If it's the root: distribute C children evenly around 360°.
-  //   • Otherwise: C children + 1 parent direction = C+1 equal sectors.
-  //     The parent sector is centred on θ_back (direction back to parent).
-  //     C children are distributed symmetrically around θ_outward (= θ_back + π),
-  //     each separated by sectorSize = 2π/(C+1).
-  //
-  // Axon length from parent at depth D to its children: BASE / phi^D
+  // Layout rules applied here:
+  //   Rule 1 — Adaptive sector size: weight angular allocation by descendant count.
+  //   Rule 2 — Variable axon length: ±17.5% per-node variation via deterministic hash.
+  //   Rule 3 — Outward bias: θ_outward comes from root→parent vector, not gp→parent.
+  //   Rule 4 — Gentle asymmetry: ±10° deterministic jitter per child node.
+  //   Rule 5 — Breathing room: minimum 25° sector for each depth-1 branch.
+
+  // Pre-compute descendant counts for sector weighting (Rule 1)
+  const descCounts: Record<string, number> = {};
+  for (const id of Object.keys(neurons)) {
+    descCounts[id] = countDescendants(neurons, id);
+  }
 
   interface Task { parentId: string; depth: number; }
   const workQueue: Task[] = [{ parentId: coreNode.id, depth: 0 }];
@@ -306,34 +320,60 @@ export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions
     const children = (parent.children || []).filter(cid => neurons[cid]);
     if (children.length === 0) continue;
 
-    const C = children.length;
     const axonLen = axonLengthForDepth(depth);
-
     let childAngles: number[];
 
     if (parent.isCore) {
-      // Root: evenly around full circle, starting straight up
-      const sectorSize = (2 * Math.PI) / C;
-      childAngles = children.map((_, i) => -Math.PI / 2 + i * sectorSize);
+      // Root: distribute children around full circle.
+      // Rule 1: weight sectors by (descendants + 1).
+      // Rule 5: enforce minimum 25° sector so branches never crowd each other.
+      const weights = children.map(cid => descCounts[cid] + 1);
+      const totalWeight = weights.reduce((s, w) => s + w, 0);
+      const MIN_SECTOR = (25 * Math.PI) / 180;
+      const sectors = weights.map(w => Math.max(MIN_SECTOR, (w / totalWeight) * 2 * Math.PI));
+      const totalSector = sectors.reduce((s, v) => s + v, 0);
+      const norm = (2 * Math.PI) / totalSector;
+      const normSectors = sectors.map(s => s * norm);
+
+      let cum = -Math.PI / 2;
+      childAngles = normSectors.map(sec => {
+        const mid = cum + sec / 2;
+        cum += sec;
+        return mid;
+      });
     } else {
-      // Non-root: C+1 sectors, one for parent direction, C for children
-      const sectorSize = (2 * Math.PI) / (C + 1);
       const gp = parent.parentId ? neurons[parent.parentId] : null;
       if (!gp) {
-        // Defensive fallback: treat as root
-        const s = (2 * Math.PI) / C;
+        // Defensive fallback
+        const s = (2 * Math.PI) / children.length;
         childAngles = children.map((_, i) => -Math.PI / 2 + i * s);
       } else {
-        // θ_back: direction from this node toward its parent (grandparent of children)
-        const θ_back = Math.atan2(gp.y - parent.y, gp.x - parent.x);
-        // θ_outward: away from grandparent
-        const θ_outward = θ_back + Math.PI;
-        // Spread children symmetrically around θ_outward
-        childAngles = children.map((_, i) => θ_outward + (i - (C - 1) / 2) * sectorSize);
+        // Rule 3: outward direction from root center → parent (not gp → parent).
+        // For depth-1 this is identical to old behavior; for deeper nodes it
+        // keeps sub-branches expanding away from the global center.
+        const θ_outward = Math.atan2(parent.y - coreNode.y, parent.x - coreNode.x);
+
+        // Rule 1: weight sectors, spread within 240° forward arc.
+        const FORWARD_ARC = (240 * Math.PI) / 180;
+        const MIN_SECTOR = (20 * Math.PI) / 180;
+        const weights = children.map(cid => descCounts[cid] + 1);
+        const totalWeight = weights.reduce((s, w) => s + w, 0);
+        const sectors = weights.map(w => Math.max(MIN_SECTOR, (w / totalWeight) * FORWARD_ARC));
+        const totalSector = sectors.reduce((s, v) => s + v, 0);
+        const norm = Math.min(1, FORWARD_ARC / totalSector);
+        const normSectors = sectors.map(s => s * norm);
+
+        const arcTotal = normSectors.reduce((s, v) => s + v, 0);
+        let cum = θ_outward - arcTotal / 2;
+        childAngles = normSectors.map(sec => {
+          const mid = cum + sec / 2;
+          cum += sec;
+          return mid;
+        });
       }
     }
 
-    // Place each child
+    // Place each child with per-node length variation (Rule 2) and jitter (Rule 4)
     for (let i = 0; i < children.length; i++) {
       const cid = children[i];
       if (locked.has(cid)) {
@@ -341,9 +381,17 @@ export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions
         continue;
       }
       const child = neurons[cid];
-      const angle = childAngles[i];
-      child.x = Math.round(parent.x + Math.cos(angle) * axonLen);
-      child.y = Math.round(parent.y + Math.sin(angle) * axonLen);
+
+      // Rule 2: ±17.5% axon length variation
+      const lenVar = 1.0 + (hashId(cid) - 0.5) * 0.35;
+      const childAxonLen = axonLen * lenVar;
+
+      // Rule 4: ±10° deterministic angular jitter
+      const jitter = (hashId(cid + 'j') - 0.5) * ((20 * Math.PI) / 180);
+
+      const angle = childAngles[i] + jitter;
+      child.x = Math.round(parent.x + Math.cos(angle) * childAxonLen);
+      child.y = Math.round(parent.y + Math.sin(angle) * childAxonLen);
       workQueue.push({ parentId: cid, depth: depth + 1 });
     }
   }
