@@ -1518,6 +1518,7 @@ function App() {
       })()}>
         <div className="relative w-0 h-0">
           {clusterList.map((clusterId, idx) => {
+            if (!worlds[clusterId]) return null;
             const isActive = clusterId === currentCluster;
             if (viewMode === 'cluster' && !isActive) return null;
             const offset = (idx - clusterIndex) * 5500;
