@@ -1123,9 +1123,9 @@ function App() {
     worlds[rootId] = newWorld;
     clusterMeta[rootId] = newMeta;
     await saveMapToStorage(mapDef, { [rootId]: newWorld }, { [rootId]: newMeta });
-    setActiveGalaxyMap(newId);
     setShowAddMapModal(false);
     setWorldVersion(v => v + 1);
+    dispatch({ type: 'NAVIGATE_TO', cluster: rootId, nodeId: coreId });
   }, []);
 
   const isInGalaxy = viewMode === 'galaxy';
