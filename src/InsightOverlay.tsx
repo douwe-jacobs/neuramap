@@ -421,7 +421,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
           </div>
 
           <div
-            className="flex items-center justify-between px-10 pt-8 pb-6 flex-shrink-0 sticky top-0"
+            className="flex items-center justify-between px-4 pt-6 pb-4 sm:px-10 sm:pt-8 sm:pb-6 flex-shrink-0 sticky top-0"
             style={{
               borderBottom: `1px solid rgba(${nodeColor},0.16)`,
               boxShadow: `0 1px 0 rgba(${nodeColor},0.06), 0 8px 24px rgba(${nodeColor},0.04)`,
@@ -473,7 +473,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
                     onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = 'rgba(255,255,255,0.65)'; }}
                     onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; }}
                   >
-                    <X size={11} /> Annuleer
+                    <X size={11} /> <span className="hidden sm:inline">Annuleer</span>
                   </button>
                   <button
                     onClick={handleSave}
@@ -488,7 +488,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
                     onMouseEnter={e => { e.currentTarget.style.background = `rgba(${nodeColor},0.2)`; e.currentTarget.style.boxShadow = `0 0 20px rgba(${nodeColor},0.3)`; }}
                     onMouseLeave={e => { e.currentTarget.style.background = `rgba(${nodeColor},0.12)`; e.currentTarget.style.boxShadow = `0 0 12px rgba(${nodeColor},0.15)`; }}
                   >
-                    <Check size={11} /> Opslaan
+                    <Check size={11} /> <span className="hidden sm:inline">Opslaan</span>
                   </button>
                 </>
               ) : (
@@ -506,7 +506,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
                     onMouseEnter={e => { e.currentTarget.style.background = `rgba(${nodeColor},0.16)`; e.currentTarget.style.boxShadow = `0 0 18px rgba(${nodeColor},0.25)`; e.currentTarget.style.borderColor = `rgba(${nodeColor},0.4)`; }}
                     onMouseLeave={e => { e.currentTarget.style.background = `rgba(${nodeColor},0.08)`; e.currentTarget.style.boxShadow = `0 0 10px rgba(${nodeColor},0.1)`; e.currentTarget.style.borderColor = `rgba(${nodeColor},0.22)`; }}
                   >
-                    <Pencil size={11} /> Bewerk
+                    <Pencil size={11} /> <span className="hidden sm:inline">Bewerk</span>
                   </button>
                   <button
                     onClick={onClose}
@@ -527,7 +527,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
             </div>
           </div>
 
-          <div className="px-10 py-8 relative" style={{ zIndex: 1 }}>
+          <div className="px-4 py-6 sm:px-10 sm:py-8 relative" style={{ zIndex: 1 }}>
             {editMode ? (
               <div className="flex flex-col gap-4">
                 <div
