@@ -34,7 +34,7 @@ export async function performUndo(onWorldChanged: () => void): Promise<string | 
   if (!entry) return null;
   const { clusterId, snapshot } = entry;
   worlds[clusterId] = JSON.parse(JSON.stringify(snapshot));
-  reflowNeurons(worlds[clusterId].neurons);
+  reflowNeurons(worlds[clusterId].neurons, true); // sizes only — positions are in the snapshot
   Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
   await saveWorldToStorage(clusterId);
   onWorldChanged();

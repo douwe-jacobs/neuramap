@@ -208,40 +208,6 @@ export function findRelatedNodeId(clusterId: string, relatedLabel: string): stri
   return best || getCoreId(clusterId);
 }
 
-function segmentsIntersect(
-  ax1: number, ay1: number, ax2: number, ay2: number,
-  bx1: number, by1: number, bx2: number, by2: number,
-): boolean {
-  const dax = ax2 - ax1, day = ay2 - ay1;
-  const dbx = bx2 - bx1, dby = by2 - by1;
-  const denom = dax * dby - day * dbx;
-  if (Math.abs(denom) < 1e-10) return false;
-  const t = ((bx1 - ax1) * dby - (by1 - ay1) * dbx) / denom;
-  const u = ((bx1 - ax1) * day - (by1 - ay1) * dax) / denom;
-  return t > 0.05 && t < 0.95 && u > 0.05 && u < 0.95;
-}
-
-function axonWouldCross(
-  neurons: Record<string, import('./types').Neuron>,
-  fromId: string,
-  toX: number,
-  toY: number,
-): boolean {
-  const from = neurons[fromId];
-  if (!from) return false;
-  for (const n of Object.values(neurons)) {
-    for (const cid of n.children || []) {
-      const child = neurons[cid];
-      if (!child) continue;
-      if (n.id === fromId || cid === fromId) continue;
-      if (segmentsIntersect(from.x, from.y, toX, toY, n.x, n.y, child.x, child.y)) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
 /** Deterministic hash: node id → float in [0, 1) */
 function hashId(id: string): number {
   let h = 0;
@@ -251,6 +217,18 @@ function hashId(id: string): number {
   return (h >>> 0) / 4294967296;
 }
 
+/**
+ * Force-directed layout for new maps (preservePositions=false).
+ * When preservePositions=true (undo restore, etc.) only sizes are updated.
+ *
+ * Algorithm:
+ *  1. BFS depth + size update (always).
+ *  2. Radial seed placement as starting point for the simulation.
+ *  3. 450-iteration spring+repulsion simulation with temperature cooling.
+ *     – Spring: each parent→child edge has a preferred rest length (800 × 0.7^depth).
+ *     – Repulsion: every pair of nodes pushes apart electrostatically.
+ *     – Root is pinned at (0, 0).
+ */
 export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions = false): void {
   const coreNode = Object.values(neurons).find(n => n.isCore);
   if (!coreNode) return;
@@ -270,105 +248,112 @@ export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions
     }
   }
 
-  // ── Step 2: Update sizes (sqrt(phi) ≈ 1.272 per depth level) ────────────────
+  // ── Step 2: Update sizes (sqrt(phi) ≈ 1.272 per depth) ─────────────────────
   for (const n of Object.values(neurons)) {
     n.size = sizeForDepth(depths[n.id] ?? 1);
   }
 
-  // ── Step 3: Lock already-placed nodes in preservePositions mode ─────────────
-  const locked = new Set<string>();
-  if (preservePositions) {
-    for (const n of Object.values(neurons)) {
-      if (!n.isCore && (Math.abs(n.x) > 10 || Math.abs(n.y) > 10)) locked.add(n.id);
-    }
-  }
+  // preservePositions=true → only sizes needed (used by undo restore)
+  if (preservePositions) return;
 
-  // ── Step 4: Place root at origin ────────────────────────────────────────────
+  // ── Step 3: Seed placement — radial BFS, starting point for simulation ──────
   coreNode.x = 0;
   coreNode.y = 0;
-
-  // ── Step 5: BFS placement ────────────────────────────────────────────────────
-  //   Depth-1: evenly spread around 360°, starting straight up (−π/2).
-  //   Deeper:  evenly spread across a 180° arc on the outward side of the parent
-  //            (the arc is centred on the parent's outward direction from root).
-  //   Jitter:  ±5° angle and ±10% axon length, both deterministic per node id.
-
-  interface Task { parentId: string; depth: number; }
-  const queue: Task[] = [{ parentId: coreNode.id, depth: 0 }];
-
-  while (queue.length > 0) {
-    const { parentId, depth } = queue.shift()!;
-    const parent = neurons[parentId];
-    if (!parent) continue;
-
-    const children = (parent.children || []).filter(cid => neurons[cid]);
-    if (children.length === 0) continue;
-
-    const axonLen = axonLengthForDepth(depth); // 800 × 0.7^depth
-    const C = children.length;
-
-    // Base angle for each child
-    const baseAngles: number[] = [];
-
-    if (parent.isCore) {
-      // Even spread across full 360°
-      const step = (2 * Math.PI) / C;
-      for (let i = 0; i < C; i++) baseAngles.push(-Math.PI / 2 + i * step);
-    } else {
-      // Outward direction: from root center through this parent
-      const θ_out = Math.atan2(parent.y - coreNode.y, parent.x - coreNode.x);
-      // Spread C children evenly across 180°, centred on θ_out
-      if (C === 1) {
-        baseAngles.push(θ_out);
-      } else {
-        const arc  = Math.PI; // 180°
-        const step = arc / (C - 1);
-        for (let i = 0; i < C; i++) baseAngles.push(θ_out - arc / 2 + i * step);
+  {
+    interface Task { parentId: string; depth: number; }
+    const q: Task[] = [{ parentId: coreNode.id, depth: 0 }];
+    while (q.length > 0) {
+      const { parentId, depth } = q.shift()!;
+      const parent = neurons[parentId];
+      if (!parent) continue;
+      const children = (parent.children || []).filter(cid => neurons[cid]);
+      const C = children.length;
+      if (C === 0) continue;
+      const L = axonLengthForDepth(depth);
+      for (let i = 0; i < C; i++) {
+        const cid = children[i];
+        const child = neurons[cid];
+        // Base angle: even spread (360° for root, 180° arc outward for others)
+        let angle: number;
+        if (parent.isCore) {
+          angle = -Math.PI / 2 + (i / C) * 2 * Math.PI;
+        } else {
+          const θ = Math.atan2(parent.y - coreNode.y, parent.x - coreNode.x);
+          angle = C === 1 ? θ : θ - Math.PI / 2 + (i / (C - 1)) * Math.PI;
+        }
+        // Small deterministic jitter so symmetric graphs don't get stuck
+        angle += (hashId(cid + 'a') - 0.5) * ((12 * Math.PI) / 180);
+        child.x = parent.x + Math.cos(angle) * L;
+        child.y = parent.y + Math.sin(angle) * L;
+        q.push({ parentId: cid, depth: depth + 1 });
       }
-    }
-
-    for (let i = 0; i < C; i++) {
-      const cid = children[i];
-      if (locked.has(cid)) { queue.push({ parentId: cid, depth: depth + 1 }); continue; }
-
-      const child = neurons[cid];
-
-      // ±5° jitter
-      const jitter = (hashId(cid + 'a') - 0.5) * ((10 * Math.PI) / 180);
-      // ±10% length variation
-      const lenVar = 1.0 + (hashId(cid + 'l') - 0.5) * 0.2;
-
-      const angle = baseAngles[i] + jitter;
-      child.x = Math.round(parent.x + Math.cos(angle) * axonLen * lenVar);
-      child.y = Math.round(parent.y + Math.sin(angle) * axonLen * lenVar);
-      queue.push({ parentId: cid, depth: depth + 1 });
     }
   }
 
-  // ── Step 6: Collision avoidance — push overlapping nodes apart ───────────────
-  //   70px minimum surface gap, up to 50 iterations, exits early when clean.
-  const allNodes = Object.values(neurons);
-  const MIN_GAP = 70;
+  // ── Step 4: Force-directed simulation ───────────────────────────────────────
+  const nodeList = Object.values(neurons);
 
-  for (let iter = 0; iter < 50; iter++) {
-    let moved = false;
-    for (let i = 0; i < allNodes.length - 1; i++) {
-      for (let j = i + 1; j < allNodes.length; j++) {
-        const a = allNodes[i];
-        const b = allNodes[j];
-        const minDist = a.size / 2 + MIN_GAP + b.size / 2;
+  // Spring edges: preferred rest length = 800 × 0.7^(parent depth)
+  const edges: Array<{ a: Neuron; b: Neuron; L: number }> = [];
+  for (const n of nodeList) {
+    for (const cid of n.children || []) {
+      const child = neurons[cid];
+      if (child) edges.push({ a: n, b: child, L: axonLengthForDepth(depths[n.id] ?? 0) });
+    }
+  }
+
+  const K_SPRING = 0.06;   // spring stiffness
+  const K_REPEL  = 180_000; // electrostatic repulsion strength
+  const ITERS    = 450;
+  let   temp     = 150;    // max displacement per step (world px)
+  const COOLING  = 0.988;  // temp decay — reaches ~2px at final iteration
+
+  for (let iter = 0; iter < ITERS; iter++) {
+    const fx: Record<string, number> = {};
+    const fy: Record<string, number> = {};
+    for (const n of nodeList) { fx[n.id] = 0; fy[n.id] = 0; }
+
+    // Spring forces (Hooke): F = K_SPRING * (dist − restLength), along edge
+    for (const { a, b, L } of edges) {
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      const f    = K_SPRING * (dist - L); // +ve attracts, −ve repels
+      const ux   = dx / dist, uy = dy / dist;
+      if (!a.isCore) { fx[a.id] += f * ux; fy[a.id] += f * uy; }
+      if (!b.isCore) { fx[b.id] -= f * ux; fy[b.id] -= f * uy; }
+    }
+
+    // Repulsion forces: every pair pushes apart ∝ 1/dist²
+    for (let i = 0; i < nodeList.length; i++) {
+      for (let j = i + 1; j < nodeList.length; j++) {
+        const a = nodeList[i], b = nodeList[j];
         const dx = b.x - a.x;
         const dy = b.y - a.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        if (dist < minDist) {
-          const push = (minDist - dist) / (2 * dist);
-          if (!a.isCore) { a.x = Math.round(a.x - dx * push); a.y = Math.round(a.y - dy * push); }
-          if (!b.isCore) { b.x = Math.round(b.x + dx * push); b.y = Math.round(b.y + dy * push); }
-          moved = true;
-        }
+        const dist = Math.max(Math.hypot(dx, dy), 1);
+        const f    = K_REPEL / (dist * dist);
+        const ux   = dx / dist, uy = dy / dist;
+        if (!a.isCore) { fx[a.id] -= f * ux; fy[a.id] -= f * uy; }
+        if (!b.isCore) { fx[b.id] += f * ux; fy[b.id] += f * uy; }
       }
     }
-    if (!moved) break;
+
+    // Apply forces, capped at current temperature
+    for (const n of nodeList) {
+      if (n.isCore) continue;
+      const mag = Math.hypot(fx[n.id], fy[n.id]);
+      if (mag < 0.001) continue;
+      const scale = Math.min(mag, temp) / mag;
+      n.x += fx[n.id] * scale;
+      n.y += fy[n.id] * scale;
+    }
+
+    temp *= COOLING;
+  }
+
+  // ── Step 5: Round to integers ────────────────────────────────────────────────
+  for (const n of nodeList) {
+    if (!n.isCore) { n.x = Math.round(n.x); n.y = Math.round(n.y); }
   }
 }
 
