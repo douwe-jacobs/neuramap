@@ -4,10 +4,11 @@ import type { Neuron } from './types';
 export const PHI = 1.618033988749895;
 export const CHILD_SIZE_FACTOR = 1 / PHI; // ≈ 0.618
 export const CORE_SIZE = 300;
-export const BASE_AXON_LENGTH = 1000; // root → depth-1 distance in world units
+export const BASE_AXON_LENGTH = 800; // root → depth-1 distance
+export const AXON_FALLOFF     = 0.7; // each deeper level multiplies by this
 
 export function sizeForDepth(depth: number): number {
-  // Rule 6: sqrt(phi) ≈ 1.272 ratio — clear hierarchy without being too dramatic
+  // sqrt(phi) ≈ 1.272 per level — clear hierarchy without being too dramatic
   return Math.max(50, Math.round(CORE_SIZE / Math.pow(Math.sqrt(PHI), depth)));
 }
 
@@ -15,11 +16,8 @@ export function sizeFromParent(parentSize: number): number {
   return Math.max(50, Math.round(parentSize / PHI));
 }
 
-/** Axon length from a node at parentDepth to its children at parentDepth+1.
- *  Uses sqrt(PHI) ≈ 1.272 falloff so sub-branches stay spacious rather than
- *  collapsing rapidly (vs PHI ≈ 1.618 which halves length every ~2 levels). */
 export function axonLengthForDepth(parentDepth: number): number {
-  return BASE_AXON_LENGTH / Math.pow(Math.sqrt(PHI), parentDepth);
+  return BASE_AXON_LENGTH * Math.pow(AXON_FALLOFF, parentDepth);
 }
 
 export function getCoreId(clusterId: string): string {
@@ -244,11 +242,6 @@ function axonWouldCross(
   return false;
 }
 
-function countDescendants(neurons: Record<string, Neuron>, id: string): number {
-  const children = neurons[id]?.children || [];
-  return children.reduce((sum, cid) => sum + 1 + countDescendants(neurons, cid), 0);
-}
-
 /** Deterministic hash: node id → float in [0, 1) */
 function hashId(id: string): number {
   let h = 0;
@@ -277,18 +270,16 @@ export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions
     }
   }
 
-  // ── Step 2: Update sizes — depth N → CORE_SIZE / phi^N ──────────────────────
+  // ── Step 2: Update sizes (sqrt(phi) ≈ 1.272 per depth level) ────────────────
   for (const n of Object.values(neurons)) {
     n.size = sizeForDepth(depths[n.id] ?? 1);
   }
 
-  // ── Step 3: Nodes to keep fixed (preservePositions mode) ────────────────────
+  // ── Step 3: Lock already-placed nodes in preservePositions mode ─────────────
   const locked = new Set<string>();
   if (preservePositions) {
     for (const n of Object.values(neurons)) {
-      if (!n.isCore && (Math.abs(n.x) > 10 || Math.abs(n.y) > 10)) {
-        locked.add(n.id);
-      }
+      if (!n.isCore && (Math.abs(n.x) > 10 || Math.abs(n.y) > 10)) locked.add(n.id);
     }
   }
 
@@ -297,216 +288,87 @@ export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions
   coreNode.y = 0;
 
   // ── Step 5: BFS placement ────────────────────────────────────────────────────
-  //
-  // Layout rules applied here:
-  //   Rule 1 — Adaptive sector size: weight angular allocation by descendant count.
-  //   Rule 2 — Variable axon length: ±17.5% per-node variation via deterministic hash.
-  //   Rule 3 — Outward bias: θ_outward comes from root→parent vector, not gp→parent.
-  //   Rule 4 — Gentle asymmetry: ±10° deterministic jitter per child node.
-  //   Rule 5 — Breathing room: minimum 25° sector for each depth-1 branch.
-
-  // Pre-compute descendant counts for sector weighting (Rule 1)
-  const descCounts: Record<string, number> = {};
-  for (const id of Object.keys(neurons)) {
-    descCounts[id] = countDescendants(neurons, id);
-  }
+  //   Depth-1: evenly spread around 360°, starting straight up (−π/2).
+  //   Deeper:  evenly spread across a 180° arc on the outward side of the parent
+  //            (the arc is centred on the parent's outward direction from root).
+  //   Jitter:  ±5° angle and ±10% axon length, both deterministic per node id.
 
   interface Task { parentId: string; depth: number; }
-  const workQueue: Task[] = [{ parentId: coreNode.id, depth: 0 }];
+  const queue: Task[] = [{ parentId: coreNode.id, depth: 0 }];
 
-  while (workQueue.length > 0) {
-    const { parentId, depth } = workQueue.shift()!;
+  while (queue.length > 0) {
+    const { parentId, depth } = queue.shift()!;
     const parent = neurons[parentId];
     if (!parent) continue;
 
     const children = (parent.children || []).filter(cid => neurons[cid]);
     if (children.length === 0) continue;
 
-    const axonLen = axonLengthForDepth(depth);
-    let childAngles: number[];
+    const axonLen = axonLengthForDepth(depth); // 800 × 0.7^depth
+    const C = children.length;
+
+    // Base angle for each child
+    const baseAngles: number[] = [];
 
     if (parent.isCore) {
-      // Root: distribute children around full circle.
-      // Rule 1: weight sectors by (descendants + 1).
-      // Rule 5: enforce minimum 25° sector so branches never crowd each other.
-      const weights = children.map(cid => descCounts[cid] + 1);
-      const totalWeight = weights.reduce((s, w) => s + w, 0);
-      const MIN_SECTOR = (25 * Math.PI) / 180;
-      const sectors = weights.map(w => Math.max(MIN_SECTOR, (w / totalWeight) * 2 * Math.PI));
-      const totalSector = sectors.reduce((s, v) => s + v, 0);
-      const norm = (2 * Math.PI) / totalSector;
-      const normSectors = sectors.map(s => s * norm);
-
-      let cum = -Math.PI / 2;
-      childAngles = normSectors.map(sec => {
-        const mid = cum + sec / 2;
-        cum += sec;
-        return mid;
-      });
+      // Even spread across full 360°
+      const step = (2 * Math.PI) / C;
+      for (let i = 0; i < C; i++) baseAngles.push(-Math.PI / 2 + i * step);
     } else {
-      const gp = parent.parentId ? neurons[parent.parentId] : null;
-      if (!gp) {
-        // Defensive fallback
-        const s = (2 * Math.PI) / children.length;
-        childAngles = children.map((_, i) => -Math.PI / 2 + i * s);
+      // Outward direction: from root center through this parent
+      const θ_out = Math.atan2(parent.y - coreNode.y, parent.x - coreNode.x);
+      // Spread C children evenly across 180°, centred on θ_out
+      if (C === 1) {
+        baseAngles.push(θ_out);
       } else {
-        // Rule 3: outward direction from root center → parent (not gp → parent).
-        // For depth-1 this is identical to old behavior; for deeper nodes it
-        // keeps sub-branches expanding away from the global center.
-        const θ_outward = Math.atan2(parent.y - coreNode.y, parent.x - coreNode.x);
-
-        // Rule 1: weight sectors, spread within 280° forward arc for wider fan.
-        const FORWARD_ARC = (280 * Math.PI) / 180;
-        const MIN_SECTOR = (20 * Math.PI) / 180;
-        const weights = children.map(cid => descCounts[cid] + 1);
-        const totalWeight = weights.reduce((s, w) => s + w, 0);
-        const sectors = weights.map(w => Math.max(MIN_SECTOR, (w / totalWeight) * FORWARD_ARC));
-        const totalSector = sectors.reduce((s, v) => s + v, 0);
-        const norm = Math.min(1, FORWARD_ARC / totalSector);
-        const normSectors = sectors.map(s => s * norm);
-
-        const arcTotal = normSectors.reduce((s, v) => s + v, 0);
-        let cum = θ_outward - arcTotal / 2;
-        childAngles = normSectors.map(sec => {
-          const mid = cum + sec / 2;
-          cum += sec;
-          return mid;
-        });
+        const arc  = Math.PI; // 180°
+        const step = arc / (C - 1);
+        for (let i = 0; i < C; i++) baseAngles.push(θ_out - arc / 2 + i * step);
       }
     }
 
-    // Place each child with per-node length variation (Rule 2) and jitter (Rule 4)
-    for (let i = 0; i < children.length; i++) {
+    for (let i = 0; i < C; i++) {
       const cid = children[i];
-      if (locked.has(cid)) {
-        workQueue.push({ parentId: cid, depth: depth + 1 });
-        continue;
-      }
+      if (locked.has(cid)) { queue.push({ parentId: cid, depth: depth + 1 }); continue; }
+
       const child = neurons[cid];
 
-      // Rule 2: ±17.5% axon length variation
-      const lenVar = 1.0 + (hashId(cid) - 0.5) * 0.35;
-      const childAxonLen = axonLen * lenVar;
+      // ±5° jitter
+      const jitter = (hashId(cid + 'a') - 0.5) * ((10 * Math.PI) / 180);
+      // ±10% length variation
+      const lenVar = 1.0 + (hashId(cid + 'l') - 0.5) * 0.2;
 
-      // Rule 4: ±10° deterministic angular jitter
-      const jitter = (hashId(cid + 'j') - 0.5) * ((20 * Math.PI) / 180);
-
-      const angle = childAngles[i] + jitter;
-      child.x = Math.round(parent.x + Math.cos(angle) * childAxonLen);
-      child.y = Math.round(parent.y + Math.sin(angle) * childAxonLen);
-      workQueue.push({ parentId: cid, depth: depth + 1 });
+      const angle = baseAngles[i] + jitter;
+      child.x = Math.round(parent.x + Math.cos(angle) * axonLen * lenVar);
+      child.y = Math.round(parent.y + Math.sin(angle) * axonLen * lenVar);
+      queue.push({ parentId: cid, depth: depth + 1 });
     }
   }
 
-  // ── Step 6: Uncross axons ────────────────────────────────────────────────────
-  // For each pair of crossing axons, rotate the deeper child's whole subtree
-  // around its parent (15° steps, up to ±180°) until the crossing is gone
-  // without introducing a new one. Runs up to 5 passes until no crossings remain.
-  {
-    const moveSubtreeLocal = (id: string, dx: number, dy: number): void => {
-      const n = neurons[id];
-      if (!n) return;
-      n.x += dx; n.y += dy;
-      for (const cid of n.children || []) moveSubtreeLocal(cid, dx, dy);
-    };
+  // ── Step 6: Collision avoidance — push overlapping nodes apart ───────────────
+  //   70px minimum surface gap, up to 50 iterations, exits early when clean.
+  const allNodes = Object.values(neurons);
+  const MIN_GAP = 70;
 
-    // Build list of all axon segments (parent→child pairs)
-    const axonPairs: Array<[string, string]> = [];
-    for (const n of Object.values(neurons)) {
-      for (const cid of n.children || []) {
-        if (neurons[cid]) axonPairs.push([n.id, cid]);
-      }
-    }
-
-    for (let pass = 0; pass < 5; pass++) {
-      let changed = false;
-
-      for (let i = 0; i < axonPairs.length; i++) {
-        for (let j = i + 1; j < axonPairs.length; j++) {
-          const [ap, ac] = axonPairs[i];
-          const [bp, bc] = axonPairs[j];
-          // Skip axons that share an endpoint
-          if (ap === bp || ap === bc || ac === bp || ac === bc) continue;
-
-          const apn = neurons[ap], acn = neurons[ac];
-          const bpn = neurons[bp], bcn = neurons[bc];
-          if (!apn || !acn || !bpn || !bcn) continue;
-          if (!segmentsIntersect(apn.x, apn.y, acn.x, acn.y, bpn.x, bpn.y, bcn.x, bcn.y)) continue;
-
-          // Rotate the deeper node's subtree; prefer not touching depth-1 nodes
-          const depthA = depths[ac] ?? 1;
-          const depthB = depths[bc] ?? 1;
-          const [rotId, pivotId] = depthA >= depthB ? [ac, ap] : [bc, bp];
-          if (neurons[rotId]?.isCore) continue;
-
-          const pivot = neurons[pivotId]!;
-          const rot   = neurons[rotId]!;
-          const origAngle = Math.atan2(rot.y - pivot.y, rot.x - pivot.x);
-          const dist = Math.hypot(rot.x - pivot.x, rot.y - pivot.y) || 1;
-
-          let resolved = false;
-          for (let step = 1; step <= 12 && !resolved; step++) {
-            for (const sign of [1, -1] as const) {
-              const newAngle = origAngle + sign * step * (Math.PI / 12); // 15° steps
-              const newX = Math.round(pivot.x + Math.cos(newAngle) * dist);
-              const newY = Math.round(pivot.y + Math.sin(newAngle) * dist);
-              const dx = newX - rot.x;
-              const dy = newY - rot.y;
-
-              moveSubtreeLocal(rotId, dx, dy);
-
-              // Accept if the original crossing is gone AND no new crossing introduced
-              const crossingGone = !segmentsIntersect(apn.x, apn.y, acn.x, acn.y, bpn.x, bpn.y, bcn.x, bcn.y);
-              const noNewCrossings = crossingGone && axonPairs.every(([xp, xc], k) => {
-                if (k === i || k === j) return true;
-                const xpn = neurons[xp], xcn = neurons[xc];
-                if (!xpn || !xcn) return true;
-                return !segmentsIntersect(pivot.x, pivot.y, rot.x, rot.y, xpn.x, xpn.y, xcn.x, xcn.y);
-              });
-
-              if (noNewCrossings) {
-                resolved = true;
-                changed = true;
-                break;
-              }
-
-              moveSubtreeLocal(rotId, -dx, -dy); // undo
-            }
-          }
+  for (let iter = 0; iter < 50; iter++) {
+    let moved = false;
+    for (let i = 0; i < allNodes.length - 1; i++) {
+      for (let j = i + 1; j < allNodes.length; j++) {
+        const a = allNodes[i];
+        const b = allNodes[j];
+        const minDist = a.size / 2 + MIN_GAP + b.size / 2;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (dist < minDist) {
+          const push = (minDist - dist) / (2 * dist);
+          if (!a.isCore) { a.x = Math.round(a.x - dx * push); a.y = Math.round(a.y - dy * push); }
+          if (!b.isCore) { b.x = Math.round(b.x + dx * push); b.y = Math.round(b.y + dy * push); }
+          moved = true;
         }
       }
-
-      if (!changed) break;
     }
-  }
-
-  // ── Step 7: Collision avoidance — push overlapping nodes apart ───────────────
-  // Runs until fully converged (no overlaps remain), capped at 150 iterations.
-  // MIN_GAP increased to 80px so nodes are comfortably separated.
-  {
-    const allNodes = Object.values(neurons);
-    const MIN_GAP = 80;
-
-    for (let iter = 0; iter < 150; iter++) {
-      let moved = false;
-      for (let i = 0; i < allNodes.length - 1; i++) {
-        for (let j = i + 1; j < allNodes.length; j++) {
-          const a = allNodes[i];
-          const b = allNodes[j];
-          const minDist = a.size / 2 + MIN_GAP + b.size / 2;
-          const dx = b.x - a.x;
-          const dy = b.y - a.y;
-          const dist = Math.hypot(dx, dy) || 1;
-          if (dist < minDist) {
-            const push = (minDist - dist) / (2 * dist);
-            if (!a.isCore) { a.x = Math.round(a.x - dx * push); a.y = Math.round(a.y - dy * push); }
-            if (!b.isCore) { b.x = Math.round(b.x + dx * push); b.y = Math.round(b.y + dy * push); }
-            moved = true;
-          }
-        }
-      }
-      if (!moved) break;
-    }
+    if (!moved) break;
   }
 }
 
