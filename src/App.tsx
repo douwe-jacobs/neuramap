@@ -1,6 +1,21 @@
 // Feature flag: set to true to disable cluster view and use zoom-based navigation instead
 const DISABLE_CLUSTER_VIEW = true;
 
+const GALAXY_COLOR_PRESETS: { h: number; s: number; l: number }[] = [
+  { h: 4,   s: 84, l: 60 },
+  { h: 24,  s: 90, l: 58 },
+  { h: 42,  s: 95, l: 55 },
+  { h: 72,  s: 78, l: 48 },
+  { h: 142, s: 70, l: 45 },
+  { h: 168, s: 75, l: 46 },
+  { h: 195, s: 82, l: 50 },
+  { h: 214, s: 85, l: 58 },
+  { h: 240, s: 72, l: 62 },
+  { h: 280, s: 68, l: 62 },
+  { h: 322, s: 74, l: 58 },
+  { h: 350, s: 80, l: 62 },
+];
+
 import React, { useMemo, useReducer, useRef, useEffect, useCallback, useState } from 'react';
 import { NeuronNode } from './NeuronNode';
 import { IntroScreen } from './IntroScreen';
@@ -1055,6 +1070,7 @@ function App() {
   const galaxyJiggleRef = useRef(false);
   galaxyJiggleRef.current = galaxyJiggle;
   const jiggleMapHitRef = useRef(false);
+  const [galaxyColorPickerMapId, setGalaxyColorPickerMapId] = useState<string | null>(null);
 
   useEffect(() => {
     const handler = (e: PointerEvent) => {
@@ -1062,9 +1078,25 @@ function App() {
       const target = e.target as Element | null;
       if (target && target.closest('[data-galaxy-map]')) return;
       setGalaxyJiggle(false);
+      setGalaxyColorPickerMapId(null);
     };
     window.addEventListener('pointerdown', handler);
     return () => window.removeEventListener('pointerdown', handler);
+  }, []);
+
+  const handleSetRootColor = useCallback(async (clusterId: string, color: { h: number; s: number; l: number } | null) => {
+    const coreId = getCoreId(clusterId);
+    const neuron = worlds[clusterId]?.neurons?.[coreId];
+    if (!neuron) return;
+    if (color === null) {
+      delete neuron.color;
+    } else {
+      neuron.color = color;
+    }
+    delete _worldColorCache[clusterId];
+    await saveWorldToStorage(clusterId);
+    setWorldVersion(v => v + 1);
+    setGalaxyColorPickerMapId(null);
   }, []);
 
   const [galaxyPan, setGalaxyPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -1342,34 +1374,124 @@ function App() {
                   {galaxyJiggle && (() => {
                     const coreNode = rootNeurons.find(n => n.isCore);
                     const coreRadius = coreNode ? (coreNode.size * 1.11 * GALAXY_SCALE) / 2 : 25;
+                    const coreCol = coreNode ? getNodeColor(coreNode.id, mapCfg.rootCluster) : '80,220,200';
+                    const isPickerOpen = galaxyColorPickerMapId === mapCfg.id;
                     return (
-                      <button
-                        onPointerDown={e => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteConfirmMapId(mapCfg.id);
-                        }}
-                        style={{
-                          position: 'absolute',
-                          top: -coreRadius - 6,
-                          left: -coreRadius - 6,
-                          width: 26, height: 26,
-                          borderRadius: '50%',
-                          background: 'rgba(90,100,110,0.88)',
-                          border: '1.5px solid rgba(180,190,200,0.5)',
-                          color: 'rgba(210,215,220,0.95)',
-                          fontSize: 18,
-                          fontWeight: 300,
-                          cursor: 'pointer',
-                          zIndex: 10,
-                          boxShadow: '0 2px 10px rgba(0,0,0,0.6)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <span style={{ fontSize: 20, lineHeight: 1, marginTop: -1 }}>−</span>
-                      </button>
+                      <>
+                        {/* Delete button — top left */}
+                        <button
+                          onPointerDown={e => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirmMapId(mapCfg.id);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: -coreRadius - 6,
+                            left: -coreRadius - 6,
+                            width: 26, height: 26,
+                            borderRadius: '50%',
+                            background: 'rgba(90,100,110,0.88)',
+                            border: '1.5px solid rgba(180,190,200,0.5)',
+                            color: 'rgba(210,215,220,0.95)',
+                            fontSize: 18,
+                            fontWeight: 300,
+                            cursor: 'pointer',
+                            zIndex: 10,
+                            boxShadow: '0 2px 10px rgba(0,0,0,0.6)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <span style={{ fontSize: 20, lineHeight: 1, marginTop: -1 }}>−</span>
+                        </button>
+
+                        {/* Color ball — top right */}
+                        <div style={{ position: 'absolute', top: -coreRadius - 6, left: coreRadius - 20, zIndex: 20 }}>
+                          <button
+                            onPointerDown={e => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setGalaxyColorPickerMapId(prev => prev === mapCfg.id ? null : mapCfg.id);
+                            }}
+                            style={{
+                              width: 26, height: 26,
+                              borderRadius: '50%',
+                              background: `rgba(${coreCol},0.88)`,
+                              border: isPickerOpen ? '2px solid rgba(255,255,255,0.9)' : '1.5px solid rgba(255,255,255,0.45)',
+                              cursor: 'pointer',
+                              boxShadow: `0 2px 10px rgba(0,0,0,0.6), 0 0 12px rgba(${coreCol},0.5)`,
+                              display: 'block',
+                              padding: 0,
+                            }}
+                          />
+
+                          {isPickerOpen && (
+                            <div
+                              onPointerDown={e => e.stopPropagation()}
+                              style={{
+                                position: 'absolute',
+                                bottom: 'calc(100% + 8px)',
+                                right: 0,
+                                background: 'rgba(14,14,20,0.97)',
+                                backdropFilter: 'blur(16px)',
+                                WebkitBackdropFilter: 'blur(16px)',
+                                borderRadius: 14,
+                                padding: 10,
+                                zIndex: 500,
+                                boxShadow: '0 8px 32px rgba(0,0,0,0.7)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                width: 'max-content',
+                              }}
+                            >
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6, marginBottom: coreNode?.color ? 8 : 0 }}>
+                                {GALAXY_COLOR_PRESETS.map((preset, idx) => {
+                                  const rgb = hslToRgb(preset.h, preset.s, preset.l);
+                                  const isSelected = coreNode?.color &&
+                                    coreNode.color.h === preset.h &&
+                                    coreNode.color.s === preset.s &&
+                                    coreNode.color.l === preset.l;
+                                  return (
+                                    <div
+                                      key={idx}
+                                      onPointerDown={e => e.stopPropagation()}
+                                      onClick={(e) => { e.stopPropagation(); handleSetRootColor(mapCfg.rootCluster, preset); }}
+                                      style={{
+                                        width: 24, height: 24,
+                                        borderRadius: '50%',
+                                        background: `rgb(${rgb})`,
+                                        cursor: 'pointer',
+                                        border: isSelected ? '2px solid rgba(255,255,255,0.95)' : '1.5px solid rgba(255,255,255,0.15)',
+                                        boxShadow: isSelected ? `0 0 8px rgba(${rgb},0.8)` : 'none',
+                                        transform: isSelected ? 'scale(1.15)' : 'scale(1)',
+                                        transition: 'transform 0.12s ease',
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </div>
+                              {coreNode?.color && (
+                                <div
+                                  onPointerDown={e => e.stopPropagation()}
+                                  onClick={(e) => { e.stopPropagation(); handleSetRootColor(mapCfg.rootCluster, null); }}
+                                  style={{
+                                    textAlign: 'center',
+                                    fontSize: 9,
+                                    letterSpacing: '0.15em',
+                                    textTransform: 'uppercase',
+                                    color: 'rgba(255,255,255,0.45)',
+                                    cursor: 'pointer',
+                                    paddingTop: 2,
+                                  }}
+                                >
+                                  Reset
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </>
                     );
                   })()}
                   <div style={{
@@ -1448,7 +1570,7 @@ function App() {
           {galaxyJiggle && (
             <button
               onPointerDown={e => e.stopPropagation()}
-              onClick={() => { setGalaxyJiggle(false); }}
+              onClick={() => { setGalaxyJiggle(false); setGalaxyColorPickerMapId(null); }}
               style={{
                 position: 'fixed',
                 bottom: 'max(48px, env(safe-area-inset-bottom, 48px))',
