@@ -302,11 +302,26 @@ export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions
     }
   }
 
-  const K_SPRING = 0.06;   // spring stiffness
-  const K_REPEL  = 180_000; // electrostatic repulsion strength
-  const ITERS    = 450;
-  let   temp     = 150;    // max displacement per step (world px)
-  const COOLING  = 0.988;  // temp decay — reaches ~2px at final iteration
+  // Branch membership: map each node → its depth-1 ancestor id (or null for root).
+  // Used to apply stronger repulsion between nodes from different branches.
+  const branch: Record<string, string | null> = { [coreNode.id]: null };
+  for (const d1child of coreNode.children || []) {
+    const q: string[] = [d1child];
+    while (q.length > 0) {
+      const id = q.shift()!;
+      branch[id] = d1child;
+      for (const cid of neurons[id]?.children || []) {
+        if (branch[cid] === undefined) q.push(cid);
+      }
+    }
+  }
+
+  const K_SPRING       = 0.06;
+  const K_REPEL        = 180_000; // base repulsion (same branch)
+  const CROSS_BRANCH   = 4.0;     // multiplier for nodes in different branches
+  const ITERS          = 450;
+  let   temp           = 150;     // max displacement per step (world px)
+  const COOLING        = 0.988;   // temp decay — reaches ~2px at final iteration
 
   for (let iter = 0; iter < ITERS; iter++) {
     const fx: Record<string, number> = {};
@@ -325,14 +340,18 @@ export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions
     }
 
     // Repulsion forces: every pair pushes apart ∝ 1/dist²
+    // Cross-branch pairs use CROSS_BRANCH × stronger repulsion so branches
+    // stay in their own angular sector and don't drift into each other.
     for (let i = 0; i < nodeList.length; i++) {
       for (let j = i + 1; j < nodeList.length; j++) {
         const a = nodeList[i], b = nodeList[j];
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const dist = Math.max(Math.hypot(dx, dy), 1);
-        const f    = K_REPEL / (dist * dist);
-        const ux   = dx / dist, uy = dy / dist;
+        const sameBranch = branch[a.id] !== null && branch[a.id] === branch[b.id];
+        const k  = K_REPEL * (sameBranch ? 1 : CROSS_BRANCH);
+        const f  = k / (dist * dist);
+        const ux = dx / dist, uy = dy / dist;
         if (!a.isCore) { fx[a.id] -= f * ux; fy[a.id] -= f * uy; }
         if (!b.isCore) { fx[b.id] += f * ux; fy[b.id] += f * uy; }
       }
