@@ -90,12 +90,12 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
   const [drag, setDrag] = useState<DragState | null>(null);
   const [snapAnim, setSnapAnim] = useState<SnapAnim | null>(null);
   const [snapPos, setSnapPos] = useState<{ x: number; y: number } | null>(null);
-  const [dragSnapOffset, setDragSnapOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [colorPickerNodeId, setColorPickerNodeId] = useState<string | null>(null);
   const dragSnapOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const dragSnapTargetRef = useRef<{ x: number; y: number } | null>(null);
   const dragSnapAnimRef = useRef<number | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const draggingNodeIdRef = useRef<string | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const panAnimRef = useRef<number | null>(null);
   const panAccum = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -114,14 +114,11 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
       if (target) {
         const nx = cur.x + (target.x - cur.x) * DRAG_SNAP_EASE;
         const ny = cur.y + (target.y - cur.y) * DRAG_SNAP_EASE;
-        const changed = Math.abs(nx - cur.x) > 0.1 || Math.abs(ny - cur.y) > 0.1;
         dragSnapOffsetRef.current = { x: nx, y: ny };
-        if (changed) setDragSnapOffset({ x: nx, y: ny });
       } else {
         const nx = cur.x + (0 - cur.x) * DRAG_SNAP_EASE;
         const ny = cur.y + (0 - cur.y) * DRAG_SNAP_EASE;
         dragSnapOffsetRef.current = { x: nx, y: ny };
-        setDragSnapOffset({ x: nx, y: ny });
       }
       dragSnapAnimRef.current = requestAnimationFrame(tick);
     };
@@ -135,7 +132,6 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
     }
     dragSnapTargetRef.current = null;
     dragSnapOffsetRef.current = { x: 0, y: 0 };
-    setDragSnapOffset({ x: 0, y: 0 });
   }, []);
 
   useEffect(() => {
@@ -193,7 +189,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
     const node = neurons[nodeId];
     dragSnapTargetRef.current = null;
     dragSnapOffsetRef.current = { x: 0, y: 0 };
-    setDragSnapOffset({ x: 0, y: 0 });
+    draggingNodeIdRef.current = nodeId;
     const descendants = collectDescendants(neurons, nodeId);
     liveDragRef.current = { dx: 0, dy: 0, descendants };
     startDragSnapLoop();
@@ -300,13 +296,15 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
       }
     }
 
-    setDrag(prev => prev ? {
-      ...prev,
+    const cur = dragRef.current;
+    if (!cur) return;
+    setDrag({
+      ...cur,
       currentPointerX: e.clientX,
       currentPointerY: e.clientY,
       overTargetId,
       overDropZone: false,
-    } : null);
+    });
   }, [drag, currentCluster, viewMode, activeId, getSceneScale, onDragChange, onPanChange]);
 
   const clearLiveDrag = useCallback(() => {
@@ -322,6 +320,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
   const handlePointerUp = useCallback(async (e: React.PointerEvent) => {
     if (!drag) return;
     e.stopPropagation();
+    draggingNodeIdRef.current = null;
     clearLiveDrag();
     const neurons = worlds[currentCluster]?.neurons;
     if (!neurons) { setDrag(null); return; }
@@ -527,7 +526,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
         const isOverTarget = !node.isCore && drag?.nodeId === node.id && drag.overTargetId != null && dragMoved;
         const isDropTarget = !node.isCore && drag?.overTargetId === node.id && dragMoved;
 
-        const isActiveNode = node.id === activeId || node.id === drag?.nodeId;
+        const isActiveNode = node.id === activeId || node.id === draggingNodeIdRef.current;
         const visualScale = isActiveNode ? 1.15 : 0.85;
         const nodeSize = node.size * scale * visualScale;
         const color = getNodeColor(node.id, currentCluster);
