@@ -362,10 +362,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
         if (!targetNode.children) targetNode.children = [];
         if (!targetNode.children.includes(drag.nodeId)) targetNode.children.push(drag.nodeId);
 
-        const newSize = Math.round((targetNode.size || 164) * 0.74);
-        const sizeChange = newSize - draggedNode.size;
-        draggedNode.size = newSize;
-        applyChildSizeChange(neurons, draggedNode.children || [], sizeChange);
+        reflowNeurons(neurons, true);
 
         const fromX = drag.startNodeX + sceneDdx;
         const fromY = drag.startNodeY + sceneDdy;
@@ -530,7 +527,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
         const isOverTarget = !node.isCore && drag?.nodeId === node.id && drag.overTargetId != null && dragMoved;
         const isDropTarget = !node.isCore && drag?.overTargetId === node.id && dragMoved;
 
-        const isActiveNode = node.id === activeId || isDragging;
+        const isActiveNode = node.id === activeId || node.id === drag?.nodeId;
         const visualScale = isActiveNode ? 1.15 : 0.85;
         const nodeSize = node.size * scale * visualScale;
         const color = getNodeColor(node.id, currentCluster);
