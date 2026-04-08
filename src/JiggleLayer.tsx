@@ -530,7 +530,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
         const isOverTarget = !node.isCore && drag?.nodeId === node.id && drag.overTargetId != null && dragMoved;
         const isDropTarget = !node.isCore && drag?.overTargetId === node.id && dragMoved;
 
-        const isActiveNode = node.id === activeId;
+        const isActiveNode = node.id === activeId || isDragging;
         const visualScale = isActiveNode ? 1.15 : 0.85;
         const nodeSize = node.size * scale * visualScale;
         const color = getNodeColor(node.id, currentCluster);
