@@ -18,18 +18,10 @@ export function AuthBanner({ user }: AuthBannerProps) {
   const initial = email?.[0]?.toUpperCase() ?? '?';
 
   const handleSignIn = async () => {
-    if (user && user.is_anonymous) {
-      // Link Google to the existing anonymous account to preserve maps
-      await supabase.auth.linkIdentity({
-        provider: 'google',
-        options: { redirectTo: 'https://neuramap.io' },
-      });
-    } else {
-      await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: { redirectTo: 'https://neuramap.io' },
-      });
-    }
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: 'https://neuramap.io' },
+    });
   };
 
   const handleSkip = () => {
