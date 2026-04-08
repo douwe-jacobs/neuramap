@@ -17,6 +17,7 @@ const GALAXY_COLOR_PRESETS: { h: number; s: number; l: number }[] = [
 ];
 
 import React, { useMemo, useReducer, useRef, useEffect, useCallback, useState } from 'react';
+import type { User } from '@supabase/supabase-js';
 import { NeuronNode } from './NeuronNode';
 import { IntroScreen } from './IntroScreen';
 import { BottomBar } from './BottomBar';
@@ -26,6 +27,7 @@ import { AddNodeModal } from './AddNodeModal';
 import { AddMapModal } from './AddMapModal';
 import { InsightOverlay } from './InsightOverlay';
 import { StarField } from './StarField';
+import { AuthBanner } from './AuthBanner';
 import { getNodeColor, getNodePalette, hslToRgb } from './colors';
 import { worlds, clusterMeta, GALAXY_MAPS, CLUSTER_LISTS, _worldColorCache } from './worldData';
 import { loadFromStorage, saveWorldToStorage, deleteMapFromStorage, saveMapToStorage } from './storage';
@@ -115,6 +117,7 @@ function NeuraLogo({ onClick }: { onClick: () => void }) {
 
 function AppLoader() {
   const [hydrated, setHydrated] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -123,7 +126,10 @@ function AppLoader() {
       // Reuse existing session on refresh; create a new anonymous one on first load.
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        await supabase.auth.signInAnonymously();
+        const { data } = await supabase.auth.signInAnonymously();
+        if (!cancelled) setUser(data.user);
+      } else {
+        if (!cancelled) setUser(session.user);
       }
       if (!cancelled) {
         await loadFromStorage();
@@ -132,7 +138,21 @@ function AppLoader() {
     };
 
     init();
-    return () => { cancelled = true; };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      const newUser = session?.user ?? null;
+      setUser(newUser);
+      // If signed out (e.g. after sign-out button), create a fresh anonymous session
+      if (event === 'SIGNED_OUT') {
+        const { data } = await supabase.auth.signInAnonymously();
+        setUser(data.user);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   if (!hydrated) return (
@@ -140,12 +160,12 @@ function AppLoader() {
       <div style={{ color: 'rgba(255,255,255,0.15)', fontSize: 11, letterSpacing: '0.3em', textTransform: 'uppercase', fontFamily: 'monospace' }}>loading</div>
     </div>
   );
-  return <App />;
+  return <App user={user} />;
 }
 
 export default AppLoader;
 
-function App() {
+function App({ user }: { user: User | null }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const { viewMode, currentCluster, activeId, isTransitioning, selectedTarget, portalPhase, frozenOffset, frozenSwellScale, justLanded, showOverlay, viewTransPhase } = state;
 
@@ -2015,6 +2035,8 @@ function App() {
           onCancel={() => setAddNodeParentId(null)}
         />
       )}
+
+      <AuthBanner user={user} />
 
       <BottomBar onSubmit={handleAddNeuron} accentRgb={accentRgb} />
 
