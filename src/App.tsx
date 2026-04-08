@@ -843,6 +843,27 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [handleUndo]);
 
+  useEffect(() => {
+    const preventGesture = (e: Event) => e.preventDefault();
+    const preventPinchZoom = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      const target = e.target as Element | null;
+      if (target && mainContainerRef.current?.contains(target)) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('gesturestart', preventGesture, { passive: false });
+    document.addEventListener('gesturechange', preventGesture, { passive: false });
+    document.addEventListener('gestureend', preventGesture, { passive: false });
+    document.addEventListener('wheel', preventPinchZoom, { passive: false });
+    return () => {
+      document.removeEventListener('gesturestart', preventGesture);
+      document.removeEventListener('gesturechange', preventGesture);
+      document.removeEventListener('gestureend', preventGesture);
+      document.removeEventListener('wheel', preventPinchZoom);
+    };
+  }, []);
+
   const handleAddNeuron = useCallback(async (text: string) => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
