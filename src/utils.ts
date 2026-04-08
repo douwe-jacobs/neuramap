@@ -452,6 +452,41 @@ export function repositionSubtreeUnderNewParent(
   moveSubtreeFallback(nodeId);
 }
 
+function segmentsIntersect(
+  ax: number, ay: number, bx: number, by: number,
+  cx: number, cy: number, dx: number, dy: number,
+): boolean {
+  const cross = (ox: number, oy: number, px: number, py: number, qx: number, qy: number) =>
+    (px - ox) * (qy - oy) - (py - oy) * (qx - ox);
+  const d1 = cross(cx, cy, dx, dy, ax, ay);
+  const d2 = cross(cx, cy, dx, dy, bx, by);
+  const d3 = cross(ax, ay, bx, by, cx, cy);
+  const d4 = cross(ax, ay, bx, by, dx, dy);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+         ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+function axonWouldCross(
+  neurons: Record<string, Neuron>,
+  anchorId: string,
+  cx: number,
+  cy: number,
+): boolean {
+  const anchor = neurons[anchorId];
+  if (!anchor) return false;
+  for (const node of Object.values(neurons)) {
+    for (const childId of (node.children || [])) {
+      const child = neurons[childId];
+      if (!child) continue;
+      if (node.id === anchorId || childId === anchorId) continue;
+      if (segmentsIntersect(anchor.x, anchor.y, cx, cy, node.x, node.y, child.x, child.y)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function positionNearNode(clusterId: string, anchorId: string): { x: number; y: number } {
   const neurons = worlds[clusterId]?.neurons;
   if (!neurons) return { x: 0, y: 0 };
