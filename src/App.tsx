@@ -392,6 +392,8 @@ function App() {
 
   const [neuronZoom, setNeuronZoom] = useState<number>(ZOOM_DEFAULT);
   const neuronZoomRef = useRef<number>(ZOOM_DEFAULT);
+  const pinchAccumRef = useRef(0);
+  const pinchRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (viewMode !== 'neuron' || !DISABLE_CLUSTER_VIEW) return;
@@ -450,10 +452,30 @@ function App() {
 
     if (DISABLE_CLUSTER_VIEW) {
       if (vm !== 'neuron') return;
-      if (e.ctrlKey || e.deltaX === 0) {
-        const delta = e.ctrlKey ? e.deltaY : e.deltaY;
-        const factor = e.ctrlKey ? 0.003 : 0.002;
-        const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, neuronZoomRef.current * (1 - delta * factor)));
+      if (e.ctrlKey) {
+        // Pinch-zoom: accumulate deltas and apply once per animation frame to avoid
+        // jank from per-event React re-renders and expensive operations.
+        pinchAccumRef.current += e.deltaY;
+        if (!pinchRafRef.current) {
+          pinchRafRef.current = requestAnimationFrame(() => {
+            pinchRafRef.current = null;
+            const delta = pinchAccumRef.current;
+            pinchAccumRef.current = 0;
+            const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, neuronZoomRef.current * (1 - delta * 0.003)));
+            neuronZoomRef.current = newZoom;
+            setNeuronZoom(newZoom);
+            // Defer expensive work (storage write, snap calculation) until gesture settles
+            if (panIdleTimer.current) clearTimeout(panIdleTimer.current);
+            panIdleTimer.current = setTimeout(() => {
+              saveZoomForCluster(currentClusterRef.current, neuronZoomRef.current);
+              commitPanSnap();
+            }, 400);
+          });
+        }
+        return;
+      }
+      if (e.deltaX === 0) {
+        const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, neuronZoomRef.current * (1 - e.deltaY * 0.002)));
         neuronZoomRef.current = newZoom;
         setNeuronZoom(newZoom);
         saveZoomForCluster(cc, newZoom);
@@ -861,6 +883,12 @@ function App() {
       document.removeEventListener('gesturechange', preventGesture);
       document.removeEventListener('gestureend', preventGesture);
       document.removeEventListener('wheel', preventPinchZoom);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (pinchRafRef.current !== null) cancelAnimationFrame(pinchRafRef.current);
     };
   }, []);
 
