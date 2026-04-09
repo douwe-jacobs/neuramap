@@ -97,6 +97,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
   const dragRef = useRef<DragState | null>(null);
   const draggingNodeIdRef = useRef<string | null>(null);
   const dragLockedSizeRef = useRef<number | null>(null);
+  const nodeButtonsElemsRef = useRef<Map<string, HTMLElement>>(new Map());
   const animFrameRef = useRef<number | null>(null);
   const panAnimRef = useRef<number | null>(null);
   const panAccum = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -192,6 +193,8 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
     dragSnapOffsetRef.current = { x: 0, y: 0 };
     draggingNodeIdRef.current = nodeId;
     dragLockedSizeRef.current = node.size * getSceneScale();
+    const btnEl = nodeButtonsElemsRef.current.get(nodeId);
+    if (btnEl) btnEl.style.visibility = 'hidden';
     const descendants = collectDescendants(neurons, nodeId);
     liveDragRef.current = { dx: 0, dy: 0, descendants };
     startDragSnapLoop();
@@ -321,8 +324,15 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
     draggingNodeIdRef.current = null;
     dragLockedSizeRef.current = null;
     clearLiveDrag();
+    const draggedNodeId = drag.nodeId;
+    const restoreButtons = () => {
+      requestAnimationFrame(() => {
+        const btnEl = nodeButtonsElemsRef.current.get(draggedNodeId);
+        if (btnEl) btnEl.style.visibility = '';
+      });
+    };
     const neurons = worlds[currentCluster]?.neurons;
-    if (!neurons) { setDrag(null); return; }
+    if (!neurons) { restoreButtons(); setDrag(null); return; }
 
     const rawDdx = (e.clientX - drag.startPointerX);
     const rawDdy = (e.clientY - drag.startPointerY);
@@ -333,6 +343,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
     if (panAnimRef.current) { cancelAnimationFrame(panAnimRef.current); panAnimRef.current = null; }
     stopDragSnapLoop();
     if (!moved) {
+      restoreButtons();
       setDrag(null);
       onDragChange?.(null);
       onPanChange?.(null);
@@ -385,6 +396,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
         Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
         await saveWorldToStorage(currentCluster);
         onWorldChanged();
+        restoreButtons();
         return;
       }
     }
@@ -399,6 +411,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
     Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
     await saveWorldToStorage(currentCluster);
     onWorldChanged();
+    restoreButtons();
     setDrag(null);
     onDragChange?.(null);
     onPanChange?.(null);
@@ -556,7 +569,10 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
             onPointerDown={(e) => !node.isCore && handlePointerDown(e, node.id)}
             onPointerMove={!node.isCore ? handlePointerMove : undefined}
             onPointerUp={!node.isCore ? handlePointerUp : undefined}
-            onPointerCancel={!node.isCore ? () => { clearLiveDrag(); stopDragSnapLoop(); setDrag(null); onDragChange?.(null); onPanChange?.(null); panAccum.current = { x: 0, y: 0 }; } : undefined}
+            onPointerCancel={!node.isCore ? () => {
+              clearLiveDrag(); stopDragSnapLoop(); setDrag(null); onDragChange?.(null); onPanChange?.(null); panAccum.current = { x: 0, y: 0 };
+              requestAnimationFrame(() => { const el = nodeButtonsElemsRef.current.get(node.id); if (el) el.style.visibility = ''; });
+            } : undefined}
           >
             {isDropTarget && (
               <div style={{
@@ -570,6 +586,10 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
               }} />
             )}
 
+            <div
+              ref={(el) => { if (el) nodeButtonsElemsRef.current.set(node.id, el); else nodeButtonsElemsRef.current.delete(node.id); }}
+              style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+            >
             {!node.isCore && (
               <div
                 style={{
@@ -806,6 +826,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
                 )}
               </div>
             )}
+            </div>
           </div>
         );
       })}
