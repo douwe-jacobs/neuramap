@@ -227,21 +227,24 @@ export function NeuronNode({
               zIndex: 35,
               pointerEvents: 'all',
               cursor: 'pointer',
+              borderRadius: '50%',
+              background: `rgba(${color},0.75)`,
+              boxShadow: `0 1px 6px rgba(${color},0.4)`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              opacity: 0.55,
+              opacity: 0.75,
               transition: 'opacity 0.2s ease',
             }}
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onOverlay(node.id); }}
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.55'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.75'; }}
           >
-            <svg viewBox="0 0 16 16" fill="none" style={{ width: '100%', height: '100%', pointerEvents: 'none' }}>
-              <path d="M8 1.5a4.5 4.5 0 0 0-1.5 8.74V11.5a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 .5-.5v-1.26A4.5 4.5 0 0 0 8 1.5Z" stroke={`rgba(${color},1)`} strokeWidth="1.3" fill="none"/>
-              <line x1="6.5" y1="13" x2="9.5" y2="13" stroke={`rgba(${color},1)`} strokeWidth="1.3" strokeLinecap="round"/>
-              <line x1="7" y1="14.5" x2="9" y2="14.5" stroke={`rgba(${color},1)`} strokeWidth="1.3" strokeLinecap="round"/>
+            <svg viewBox="0 0 16 16" fill="none" style={{ width: '60%', height: '60%', pointerEvents: 'none' }}>
+              <path d="M8 1.5a4.5 4.5 0 0 0-1.5 8.74V11.5a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 .5-.5v-1.26A4.5 4.5 0 0 0 8 1.5Z" stroke="rgba(255,255,255,0.95)" strokeWidth="1.2" fill="none"/>
+              <line x1="6.5" y1="13" x2="9.5" y2="13" stroke="rgba(255,255,255,0.95)" strokeWidth="1.2" strokeLinecap="round"/>
+              <line x1="7" y1="14.5" x2="9" y2="14.5" stroke="rgba(255,255,255,0.95)" strokeWidth="1.2" strokeLinecap="round"/>
             </svg>
           </div>
         );
