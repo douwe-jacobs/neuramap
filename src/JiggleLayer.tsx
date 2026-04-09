@@ -193,8 +193,6 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
     dragSnapOffsetRef.current = { x: 0, y: 0 };
     draggingNodeIdRef.current = nodeId;
     dragLockedSizeRef.current = node.size * getSceneScale();
-    const btnEl = nodeButtonsElemsRef.current.get(nodeId);
-    if (btnEl) btnEl.style.visibility = 'hidden';
     const descendants = collectDescendants(neurons, nodeId);
     liveDragRef.current = { dx: 0, dy: 0, descendants };
     startDragSnapLoop();
@@ -323,12 +321,20 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
     e.stopPropagation();
     draggingNodeIdRef.current = null;
     dragLockedSizeRef.current = null;
+    // Capture descendants before clearLiveDrag nulls liveDragRef
+    const affectedNodeIds = liveDragRef.current ? [...liveDragRef.current.descendants] : [drag.nodeId];
     clearLiveDrag();
-    const draggedNodeId = drag.nodeId;
+    // Hide buttons for all moved nodes immediately to prevent 1-frame flash at old position
+    for (const nid of affectedNodeIds) {
+      const btnEl = nodeButtonsElemsRef.current.get(nid);
+      if (btnEl) btnEl.style.visibility = 'hidden';
+    }
     const restoreButtons = () => {
       requestAnimationFrame(() => {
-        const btnEl = nodeButtonsElemsRef.current.get(draggedNodeId);
-        if (btnEl) btnEl.style.visibility = '';
+        for (const nid of affectedNodeIds) {
+          const btnEl = nodeButtonsElemsRef.current.get(nid);
+          if (btnEl) btnEl.style.visibility = '';
+        }
       });
     };
     const neurons = worlds[currentCluster]?.neurons;
@@ -570,8 +576,9 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
             onPointerMove={!node.isCore ? handlePointerMove : undefined}
             onPointerUp={!node.isCore ? handlePointerUp : undefined}
             onPointerCancel={!node.isCore ? () => {
+              const cancelledIds = liveDragRef.current ? [...liveDragRef.current.descendants] : [node.id];
               clearLiveDrag(); stopDragSnapLoop(); setDrag(null); onDragChange?.(null); onPanChange?.(null); panAccum.current = { x: 0, y: 0 };
-              requestAnimationFrame(() => { const el = nodeButtonsElemsRef.current.get(node.id); if (el) el.style.visibility = ''; });
+              requestAnimationFrame(() => { for (const nid of cancelledIds) { const el = nodeButtonsElemsRef.current.get(nid); if (el) el.style.visibility = ''; } });
             } : undefined}
           >
             {isDropTarget && (
