@@ -8,8 +8,7 @@ export const BASE_AXON_LENGTH = 800; // root → depth-1 distance
 export const AXON_FALLOFF     = 0.7; // each deeper level multiplies by this
 
 export function sizeForDepth(depth: number): number {
-  // sqrt(phi) ≈ 1.272 per level — clear hierarchy without being too dramatic
-  return Math.max(50, Math.round(CORE_SIZE / Math.pow(Math.sqrt(PHI), depth)));
+  return Math.max(50, Math.round(CORE_SIZE * Math.pow(0.82, depth)));
 }
 
 export function sizeFromParent(parentSize: number): number {

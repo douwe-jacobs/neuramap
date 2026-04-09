@@ -89,8 +89,7 @@ export function NeuronNode({
 
   const opacity = justLanded ? 1 : (portalPhase && !isActive) ? 0 : isVisible ? 1 : 0;
   if (viewMode === 'neuron' && opacity === 0 && !portalPhase) return null;
-  const baseScale = isVisuallyActive && !isTransitioning ? 1.15 : isTarget ? 1.2 : 0.85;
-  const scale = isClusterLeaf ? baseScale * 0.7 : baseScale;
+  const scale = isClusterLeaf ? 0.7 : 1;
 
   const BLOB = '52% 48% 60% 40% / 48% 52% 48% 52%';
 

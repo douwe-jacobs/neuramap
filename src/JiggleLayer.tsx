@@ -191,9 +191,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
     dragSnapTargetRef.current = null;
     dragSnapOffsetRef.current = { x: 0, y: 0 };
     draggingNodeIdRef.current = nodeId;
-    const isActive = nodeId === activeId;
-    const visualScale = isActive ? 1.15 : 0.85;
-    dragLockedSizeRef.current = node.size * getSceneScale() * visualScale;
+    dragLockedSizeRef.current = node.size * getSceneScale();
     const descendants = collectDescendants(neurons, nodeId);
     liveDragRef.current = { dx: 0, dy: 0, descendants };
     startDragSnapLoop();
@@ -531,11 +529,9 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
         const isOverTarget = !node.isCore && drag?.nodeId === node.id && drag.overTargetId != null && dragMoved;
         const isDropTarget = !node.isCore && drag?.overTargetId === node.id && dragMoved;
 
-        const isActiveNode = node.id === activeId || node.id === draggingNodeIdRef.current;
-        const visualScale = isActiveNode ? 1.15 : 0.85;
         const nodeSize = (node.id === draggingNodeIdRef.current && dragLockedSizeRef.current !== null)
           ? dragLockedSizeRef.current
-          : node.size * scale * visualScale;
+          : node.size * scale;
         const color = getNodeColor(node.id, currentCluster);
 
         const btnSize = Math.min(36, Math.max(18, nodeSize * 0.26));
