@@ -431,10 +431,14 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
             }}
           >
             {editMode ? (
-              <input
+              <textarea
                 value={editLabel}
-                onChange={e => setEditLabel(e.target.value)}
-                className="flex-1 min-w-0 mr-3 bg-transparent outline-none uppercase font-black text-[12px]"
+                onChange={e => setEditLabel(e.target.value.toUpperCase())}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); }
+                }}
+                rows={editLabel.includes('\n') ? editLabel.split('\n').length : 1}
+                className="flex-1 min-w-0 mr-3 bg-transparent outline-none uppercase font-black text-[12px] resize-none"
                 style={{
                   letterSpacing: '0.35em',
                   color: `rgba(${nodeColor},1)`,
@@ -442,6 +446,8 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
                   border: 'none',
                   caretColor: `rgba(${nodeColor},1)`,
                   fontFamily: 'inherit',
+                  lineHeight: '1.4',
+                  overflow: 'hidden',
                 }}
                 onClick={e => e.stopPropagation()}
               />
