@@ -2015,7 +2015,7 @@ function App({ user }: { user: User | null }) {
             const dy = drag.screenDy / sc;
             for (const nid of drag.descendants) {
               const el = layer.querySelector<HTMLElement>(`[data-nodeid="${nid}"]`);
-              if (el) el.style.transform = `translate(${dx}px,${dy}px) scale(0.85)`;
+              if (el) el.style.transform = `translate(${dx}px,${dy}px)`;
             }
           }
         }}

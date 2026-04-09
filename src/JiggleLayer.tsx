@@ -286,14 +286,10 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
     if (liveDragRef.current && moved) {
       liveDragRef.current.dx = dx;
       liveDragRef.current.dy = dy;
-      const nodeScale = overTargetId ? 0.85 : 1.1;
       for (const nid of liveDragRef.current.descendants) {
         const el = nodeElemsRef.current.get(nid);
         if (el) {
-          const isMainNode = nid === drag.nodeId;
-          el.style.transform = isMainNode
-            ? `translate(${dx}px,${dy}px) scale(${nodeScale})`
-            : `translate(${dx}px,${dy}px) scale(1)`;
+          el.style.transform = `translate(${dx}px,${dy}px)`;
         }
       }
     }
