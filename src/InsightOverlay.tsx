@@ -244,8 +244,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
     setEditMode(false);
   }, [node.content, onClose]);
 
-  const handleSave = useCallback(async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const commitSave = useCallback(async () => {
     const newContent: NeuronContent = {
       body: editBody || undefined,
       image: editImage || undefined,
@@ -254,6 +253,11 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
     await onSave(editLabel, newContent);
     setEditMode(false);
   }, [editLabel, editBody, editImage, editAttachments, onSave]);
+
+  const handleSave = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await commitSave();
+  }, [commitSave]);
 
   const uploadFile = useCallback(async (file: File) => {
     const isImage = file.type.startsWith('image/');
@@ -435,7 +439,7 @@ export function InsightOverlay({ node, clusterId, nodeColor, visible, onClose, o
                 value={editLabel}
                 onChange={e => setEditLabel(e.target.value.toUpperCase())}
                 onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); }
+                  if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); commitSave(); }
                 }}
                 rows={editLabel.includes('\n') ? editLabel.split('\n').length : 1}
                 className="flex-1 min-w-0 mr-3 bg-transparent outline-none uppercase font-black text-[12px] resize-none"
