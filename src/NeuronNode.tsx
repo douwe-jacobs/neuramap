@@ -215,13 +215,16 @@ export function NeuronNode({
         </div>
       </div>
       {node.content && !jiggleMode && viewMode === 'neuron' && (() => {
-        const iconSize = Math.min(18, Math.max(8, Math.round(node.size * 0.15)));
+        // Match JiggleLayer btnSize exactly: min(36,max(18, nodeSize*0.26)) screen px, converted to scene units
+        const screenBtnSize = Math.min(36, Math.max(18, node.size * neuronZoom * 0.26));
+        const iconSize = Math.round(screenBtnSize / neuronZoom);
+        const svgSize = Math.round(screenBtnSize * 0.48);
         return (
           <div
             style={{
               position: 'absolute',
-              bottom: '14%',
-              right: '14%',
+              bottom: 0,
+              right: 0,
               width: iconSize,
               height: iconSize,
               zIndex: 35,
@@ -233,6 +236,7 @@ export function NeuronNode({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              transform: 'translate(25%, 25%)',
               opacity: 0.75,
               transition: 'opacity 0.2s ease',
             }}
@@ -241,7 +245,7 @@ export function NeuronNode({
             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
             onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.75'; }}
           >
-            <svg viewBox="0 0 16 16" fill="none" style={{ width: '60%', height: '60%', pointerEvents: 'none' }}>
+            <svg width={svgSize} height={svgSize} viewBox="0 0 16 16" fill="none" style={{ pointerEvents: 'none' }}>
               <path d="M8 1.5a4.5 4.5 0 0 0-1.5 8.74V11.5a.5.5 0 0 0 .5.5h2a.5.5 0 0 0 .5-.5v-1.26A4.5 4.5 0 0 0 8 1.5Z" stroke="rgba(255,255,255,0.95)" strokeWidth="1.2" fill="none"/>
               <line x1="6.5" y1="13" x2="9.5" y2="13" stroke="rgba(255,255,255,0.95)" strokeWidth="1.2" strokeLinecap="round"/>
               <line x1="7" y1="14.5" x2="9" y2="14.5" stroke="rgba(255,255,255,0.95)" strokeWidth="1.2" strokeLinecap="round"/>
