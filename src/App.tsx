@@ -201,6 +201,8 @@ function App({ user }: { user: User | null }) {
   const [newNodeId, setNewNodeId] = useState<string | null>(null);
   const [addNodeParentId, setAddNodeParentId] = useState<string | null>(null);
   const [jigglePan, setJigglePan] = useState<{ x: number; y: number } | null>(null);
+  const jigglePanRef = useRef<{ x: number; y: number } | null>(null);
+  jigglePanRef.current = jigglePan;
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressStart = useRef<{ x: number; y: number } | null>(null);
 
@@ -2002,6 +2004,7 @@ function App({ user }: { user: User | null }) {
         onWorldChanged={() => setWorldVersion(v => v + 1)}
         worldVersion={worldVersion}
         onDragChange={(drag) => {
+          const prevDrag = jiggleDragRef.current;
           jiggleDragRef.current = drag;
           setJiggleDrag(drag);
           const layer = neuronLayerRef.current;
@@ -2010,6 +2013,23 @@ function App({ user }: { user: User | null }) {
             layer.querySelectorAll<HTMLElement>('[data-nodeid]').forEach(el => {
               el.style.transform = '';
             });
+            // Freeze viewport so the camera doesn't re-center after the drop.
+            // The camera position before drop: (viewCenterX, viewCenterY) minus any jigglePan offset.
+            if (!panOffsetRef.current && prevDrag) {
+              const ai = activeIdRef.current;
+              const cc = currentClusterRef.current;
+              // If the active node was dragged, use its pre-drag position; otherwise read current (unmoved) position.
+              const wasActiveDragged = prevDrag.nodeId === ai;
+              const viewCenterX = wasActiveDragged ? prevDrag.startNodeX : (worlds[cc]?.neurons?.[ai]?.x ?? 0);
+              const viewCenterY = wasActiveDragged ? prevDrag.startNodeY : (worlds[cc]?.neurons?.[ai]?.y ?? 0);
+              // Account for any pan accumulated during the drag gesture.
+              const jp = jigglePanRef.current;
+              const zoom = neuronZoomRef.current;
+              const lockedX = viewCenterX - (jp?.x ?? 0) / zoom;
+              const lockedY = viewCenterY - (jp?.y ?? 0) / zoom;
+              panOffsetRef.current = { x: lockedX, y: lockedY };
+              setPanOffset({ x: lockedX, y: lockedY });
+            }
           } else {
             const sc = viewMode === 'cluster' ? 0.146 : neuronZoomRef.current;
             const dx = drag.screenDx / sc;
