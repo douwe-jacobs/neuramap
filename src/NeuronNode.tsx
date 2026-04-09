@@ -215,10 +215,9 @@ export function NeuronNode({
         </div>
       </div>
       {node.content && !jiggleMode && viewMode === 'neuron' && (() => {
-        // Match JiggleLayer btnSize exactly: min(36,max(18, nodeSize*0.26)) screen px, converted to scene units
-        const screenBtnSize = Math.min(36, Math.max(18, node.size * neuronZoom * 0.26));
-        const iconSize = Math.round(screenBtnSize / neuronZoom);
-        const svgSize = Math.round(screenBtnSize * 0.48);
+        // Scale as a pure fraction of node.size (scene units) — CSS zoom on parent handles screen scaling
+        const iconSize = Math.round(node.size * 0.26);
+        const svgSize = Math.round(iconSize * 0.48);
         return (
           <div
             style={{
