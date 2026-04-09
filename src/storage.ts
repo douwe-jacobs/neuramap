@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { worlds, clusterMeta, GALAXY_MAPS, CLUSTER_LISTS, _worldColorCache } from './worldData';
+import { reflowNeurons } from './utils';
 import type { MapDef } from './types';
 
 
@@ -19,7 +20,10 @@ export async function loadFromStorage(): Promise<void> {
       CLUSTER_LISTS[mapDef.id] = mapDef.clusterIds || [mapDef.rootCluster];
       for (const clusterId of (mapDef.clusterIds || [mapDef.rootCluster])) {
         const { data: wRow } = await supabase.from('neura_storage').select('value').eq('key', `world:${clusterId}`).maybeSingle();
-        if (wRow) worlds[clusterId] = JSON.parse(wRow.value);
+        if (wRow) {
+          worlds[clusterId] = JSON.parse(wRow.value);
+          reflowNeurons(worlds[clusterId].neurons, true); // normalize sizes to current formula, preserve positions
+        }
         const { data: mRow } = await supabase.from('neura_storage').select('value').eq('key', `meta:${clusterId}`).maybeSingle();
         if (mRow) clusterMeta[clusterId] = JSON.parse(mRow.value);
         allClusterIds.push(clusterId);

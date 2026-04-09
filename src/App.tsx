@@ -36,7 +36,7 @@ import { pushUndo, performUndo, canUndo, setOnUndoAvailable } from './undoHistor
 import {
   getCoreId, getMapForCluster, spreadClusterY, findNeuronInDirection,
   getClusterCrumbs, getLineage, generateNodeId, findRelatedNodeId, positionNearNode,
-  reflowNeurons, sizeForDepth, sizeFromParent,
+  reflowNeurons, sizeForDepth,
 } from './utils';
 import type { AppState, AppAction, NeuronContent } from './types';
 
@@ -1074,7 +1074,7 @@ function App({ user }: { user: User | null }) {
       worlds[targetCluster].neurons[newId] = {
         id: newId,
         label: def.label.toUpperCase(),
-        size: parent ? sizeFromParent(parent.size) : sizeForDepth(1),
+        size: 50, // placeholder — reflowNeurons sets correct depth-based size below
         x: pos.x,
         y: pos.y,
         parentId,
@@ -1088,6 +1088,7 @@ function App({ user }: { user: User | null }) {
 
       lastAddedId = newId;
     }
+    reflowNeurons(worlds[targetCluster].neurons, true); // normalize sizes, preserve positions
     Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
     await saveWorldToStorage(targetCluster);
     setWorldVersion(v => v + 1);
@@ -1101,12 +1102,11 @@ function App({ user }: { user: User | null }) {
     pushUndo(currentCluster);
     const newId = generateNodeId();
     const parent = neurons[parentId];
-    const childSize = sizeFromParent(parent.size);
     const pos = positionNearNode(currentCluster, parentId);
     neurons[newId] = {
       id: newId,
       label: label.toUpperCase(),
-      size: childSize,
+      size: 50, // placeholder — reflowNeurons sets correct depth-based size below
       x: pos.x,
       y: pos.y,
       parentId,
@@ -1114,6 +1114,7 @@ function App({ user }: { user: User | null }) {
     };
     if (!parent.children) parent.children = [];
     parent.children.push(newId);
+    reflowNeurons(neurons, true); // normalize all sizes to depth formula, preserve positions
     Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
     await saveWorldToStorage(currentCluster);
     setWorldVersion(v => v + 1);
