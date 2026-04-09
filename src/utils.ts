@@ -4,7 +4,7 @@ import type { Neuron } from './types';
 export const PHI = 1.618033988749895;
 export const CHILD_SIZE_FACTOR = 1 / PHI; // ≈ 0.618
 export const CORE_SIZE = 300;
-export const BASE_AXON_LENGTH = 800; // root → depth-1 distance
+export const BASE_AXON_LENGTH = 536; // root → depth-1 distance (800 × 0.67)
 export const AXON_FALLOFF     = 0.7; // each deeper level multiplies by this
 
 export function sizeForDepth(depth: number): number {
