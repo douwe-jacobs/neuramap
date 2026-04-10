@@ -83,9 +83,7 @@ export function NeuronNode({
   const deepLabelOpacity = 1;
   const hideLabelInLastTenPercent = viewMode === 'neuron' && nodeDepth >= 2 && inLastTenPercent;
 
-  const contentHoldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tapZoneRef = useRef<HTMLDivElement>(null);
-  const pointerStart = useRef<{ x: number; y: number } | null>(null);
 
   const opacity = justLanded ? 1 : (portalPhase && !isActive) ? 0 : isVisible ? 1 : 0;
   if (viewMode === 'neuron' && opacity === 0 && !portalPhase) return null;
@@ -219,7 +217,7 @@ export function NeuronNode({
               letterSpacing: viewMode === 'cluster' ? (node.isCore ? '0.20em' : '0.18em') : (node.isCore ? '0.30em' : '0.255em'),
               textShadow: '0 2px 16px rgba(0,0,0,1)',
               lineHeight: '1.4',
-              borderBottom: (node.content && i === arr.length - 1 && viewMode !== 'cluster') ? '1px solid rgba(255,255,255,0.35)' : 'none',
+              borderBottom: (node.content && i === arr.length - 1 && viewMode !== 'cluster') ? '2px solid rgba(255,255,255,0.7)' : 'none',
               paddingBottom: (node.content && viewMode !== 'cluster') ? '1px' : '0',
               opacity: nodeDepth >= 2 ? deepLabelOpacity : 1,
               transition: 'opacity 120ms linear',
@@ -230,39 +228,6 @@ export function NeuronNode({
         </div>
       </div>
 
-      {isActive && viewMode === 'neuron' && node.content && (
-        <div className="absolute inset-0 z-30"
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            pointerStart.current = { x: e.clientX, y: e.clientY };
-            if (tapZoneRef.current) { tapZoneRef.current.style.transition = 'transform 80ms ease-out'; tapZoneRef.current.style.transform = 'scale(1.04)'; }
-            contentHoldTimer.current = setTimeout(() => {
-              if (tapZoneRef.current) { tapZoneRef.current.style.transition = 'transform 500ms ease-out'; tapZoneRef.current.style.transform = 'scale(1.15)'; }
-            }, 80);
-          }}
-          onPointerMove={(e) => {
-            if (!pointerStart.current) return;
-            if (Math.hypot(e.clientX - pointerStart.current.x, e.clientY - pointerStart.current.y) > 8) {
-              clearTimeout(contentHoldTimer.current!);
-              pointerStart.current = null;
-              if (tapZoneRef.current) { tapZoneRef.current.style.transition = 'transform 200ms ease-out'; tapZoneRef.current.style.transform = 'scale(1)'; }
-            }
-          }}
-          onPointerUp={(e) => {
-            e.stopPropagation();
-            clearTimeout(contentHoldTimer.current!);
-            if (tapZoneRef.current) { tapZoneRef.current.style.transition = 'transform 200ms ease-out'; tapZoneRef.current.style.transform = 'scale(1)'; }
-            if (!pointerStart.current) return;
-            pointerStart.current = null;
-            onOverlay(node.id);
-          }}
-          onPointerLeave={() => {
-            clearTimeout(contentHoldTimer.current!);
-            pointerStart.current = null;
-            if (tapZoneRef.current) { tapZoneRef.current.style.transition = 'transform 200ms ease-out'; tapZoneRef.current.style.transform = 'scale(1)'; }
-          }}
-        />
-      )}
       </div>
     </div>
   );
