@@ -30,7 +30,7 @@ import { StarField } from './StarField';
 import { AuthBanner } from './AuthBanner';
 import { getNodeColor, getNodePalette, hslToRgb } from './colors';
 import { worlds, clusterMeta, GALAXY_MAPS, CLUSTER_LISTS, _worldColorCache } from './worldData';
-import { loadFromStorage, saveWorldToStorage, deleteMapFromStorage, saveMapToStorage } from './storage';
+import { loadFromStorage, saveWorldToStorage, deleteMapFromStorage, saveMapToStorage, saveGalaxyIndexToStorage } from './storage';
 import { supabase } from './supabase';
 import { pushUndo, performUndo, canUndo, setOnUndoAvailable } from './undoHistory';
 import {
@@ -38,7 +38,7 @@ import {
   getClusterCrumbs, getLineage, generateNodeId, findRelatedNodeId, positionNearNode,
   reflowNeurons, sizeForDepth,
 } from './utils';
-import type { AppState, AppAction, NeuronContent } from './types';
+import type { AppState, AppAction, NeuronContent, MapDef } from './types';
 
 const initialState: AppState = {
   viewMode: 'galaxy',
@@ -1173,8 +1173,13 @@ function App({ user }: { user: User | null }) {
 
   const [galaxyPan, setGalaxyPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const galaxyPanRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [galaxyZoom, setGalaxyZoom] = useState(1);
+  const galaxyZoomRef = useRef(1);
+  galaxyZoomRef.current = galaxyZoom;
   const galaxyDragStart = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
   const galaxyDragMoved = useRef(false);
+  const galaxyDragIsEmpty = useRef(false);
+  const itemPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
 
   const [mapOffsets, setMapOffsets] = useState<Record<string, { x: number; y: number }>>(() => {
     try { return JSON.parse(localStorage.getItem('neura_map_offsets') || '{}'); } catch { return {}; }
@@ -1185,9 +1190,39 @@ function App({ user }: { user: User | null }) {
   const [deleteConfirmMapId, setDeleteConfirmMapId] = useState<string | null>(null);
 
   const [showAddMapModal, setShowAddMapModal] = useState(false);
+  const [showAddChoice, setShowAddChoice] = useState(false);
+  const [showAddClusterModal, setShowAddClusterModal] = useState(false);
+  const [clusterNameInput, setClusterNameInput] = useState('');
 
+  const galaxyContainerRef = useRef<HTMLDivElement>(null);
   const galaxyLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const galaxyLongPressStart = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!isInGalaxy) return;
+    const el = galaxyContainerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+      const oldZoom = galaxyZoomRef.current;
+      const newZoom = Math.min(4, Math.max(0.2, oldZoom * factor));
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const ratio = newZoom / oldZoom;
+      const pan = galaxyPanRef.current;
+      const newPan = {
+        x: pan.x + (e.clientX - W / 2 - pan.x) * (1 - ratio),
+        y: pan.y + (e.clientY - H / 2 - pan.y) * (1 - ratio),
+      };
+      galaxyZoomRef.current = newZoom;
+      setGalaxyZoom(newZoom);
+      galaxyPanRef.current = newPan;
+      setGalaxyPan({ ...newPan });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [isInGalaxy]);
 
   const startGalaxyLongPress = useCallback((clientX: number, clientY: number) => {
     galaxyDragStart.current = { px: clientX, py: clientY, ox: galaxyPanRef.current.x, oy: galaxyPanRef.current.y };
@@ -1206,6 +1241,8 @@ function App({ user }: { user: User | null }) {
     if (e.button !== 0 && e.button !== undefined) return;
     if (e.target !== e.currentTarget) return;
     if (galaxyJiggleRef.current) return;
+    galaxyDragIsEmpty.current = true;
+    setShowAddChoice(false);
     startGalaxyLongPress(e.clientX, e.clientY);
   }, [startGalaxyLongPress]);
 
@@ -1228,14 +1265,52 @@ function App({ user }: { user: User | null }) {
       galaxyDragMoved.current = true;
       if (galaxyLongPressTimer.current) { clearTimeout(galaxyLongPressTimer.current); galaxyLongPressTimer.current = null; }
     }
-    if (!galaxyJiggleRef.current) return;
+    if (!galaxyJiggleRef.current && !galaxyDragIsEmpty.current) return;
     const newPan = { x: galaxyDragStart.current.ox + dx, y: galaxyDragStart.current.oy + dy };
     galaxyPanRef.current = newPan;
     setGalaxyPan({ ...newPan });
   }, []);
 
-  const handleGalaxyPointerUp = useCallback(() => {
+  const handleGalaxyPointerUp = useCallback(async () => {
     if (galaxyLongPressTimer.current) { clearTimeout(galaxyLongPressTimer.current); galaxyLongPressTimer.current = null; }
+    galaxyDragIsEmpty.current = false;
+
+    // Detect cluster drop in jiggle mode
+    const ms = mapDragState.current;
+    if (ms && galaxyJiggleRef.current && galaxyDragMoved.current) {
+      const zoom = galaxyZoomRef.current;
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const getPos = (mapId: string) => {
+        const off = itemPositionsRef.current[mapId] || { x: 0, y: 0 };
+        const mapOff = mapOffsetsRef.current[mapId] || { x: 0, y: 0 };
+        return { x: W / 2 + off.x * W / 100 + mapOff.x, y: H / 2 + off.y * H / 100 + mapOff.y };
+      };
+      const draggedPos = getPos(ms.mapId);
+      let dropCluster: string | null = null;
+      for (const m of GALAXY_MAPS) {
+        if (m.id === ms.mapId || m.type !== 'cluster') continue;
+        const clusterPos = getPos(m.id);
+        const coreNode = Object.values(worlds[m.rootCluster]?.neurons || {}).find(n => n.isCore);
+        const hitRadius = (coreNode?.size ?? 300) * 1.11 * GALAXY_SCALE * zoom / 2;
+        const screenDist = Math.hypot((draggedPos.x - clusterPos.x) * zoom, (draggedPos.y - clusterPos.y) * zoom);
+        if (screenDist < hitRadius + 30) { dropCluster = m.id; break; }
+      }
+      if (dropCluster) {
+        const cluster = GALAXY_MAPS.find(m => m.id === dropCluster)!;
+        if (!cluster.children) cluster.children = [];
+        if (!cluster.children.includes(ms.mapId)) cluster.children.push(ms.mapId);
+        // Remove from other clusters
+        for (const m of GALAXY_MAPS) {
+          if (m.id !== dropCluster && m.type === 'cluster') {
+            m.children = (m.children || []).filter(id => id !== ms.mapId);
+          }
+        }
+        await saveGalaxyIndexToStorage();
+        setWorldVersion(v => v + 1);
+      }
+    }
+
     mapDragState.current = null;
     galaxyDragStart.current = null;
     galaxyLongPressStart.current = null;
@@ -1277,6 +1352,30 @@ function App({ user }: { user: User | null }) {
     setShowAddMapModal(false);
     setWorldVersion(v => v + 1);
     dispatch({ type: 'NAVIGATE_TO', cluster: rootId, nodeId: coreId });
+  }, []);
+
+  const handleCreateCluster = useCallback(async (label: string) => {
+    const newId = `cluster_${Date.now()}`;
+    const rootId = `${newId}_root`;
+    const coreId = `${newId}_core`;
+    const newWorld = {
+      label: label.toUpperCase(),
+      neurons: {
+        [coreId]: {
+          id: coreId, label: label.toUpperCase(),
+          size: 300, x: 0, y: 0,
+          isCore: true, children: [] as string[], parentId: null,
+        }
+      }
+    };
+    const newMeta = { parentClusterId: null, siblings: [], returnTarget: null, ancestorCrumbs: [] };
+    const mapDef: MapDef = { id: newId, label: label.toUpperCase(), rootCluster: rootId, clusterIds: [rootId], type: 'cluster', children: [] };
+    worlds[rootId] = newWorld;
+    clusterMeta[rootId] = newMeta;
+    await saveMapToStorage(mapDef, { [rootId]: newWorld }, { [rootId]: newMeta });
+    setShowAddClusterModal(false);
+    setClusterNameInput('');
+    setWorldVersion(v => v + 1);
   }, []);
 
   const isInGalaxy = viewMode === 'galaxy';
@@ -1339,6 +1438,7 @@ function App({ user }: { user: User | null }) {
     const j = jitter[i % jitter.length];
     itemPositions[m.id] = { x: x + j.dx, y: yBase + j.dy };
   });
+  itemPositionsRef.current = itemPositions;
 
   return (
     <>
@@ -1351,7 +1451,7 @@ function App({ user }: { user: User | null }) {
         if (!showGalaxyLayer) return null;
         return (
         <>
-        <div className="fixed inset-0 text-white font-sans overflow-hidden touch-none select-none"
+        <div ref={galaxyContainerRef} className="fixed inset-0 text-white font-sans overflow-hidden touch-none select-none"
           style={{
             height: '100dvh',
             background: 'transparent',
@@ -1373,8 +1473,9 @@ function App({ user }: { user: User | null }) {
           <div style={{
             position: 'absolute',
             inset: 0,
-            transform: `translate(${galaxyPan.x}px,${galaxyPan.y}px)`,
-            transition: galaxyDragStart.current ? 'none' : 'transform 0.4s cubic-bezier(0.16,1,0.3,1)',
+            transform: `translate(${galaxyPan.x}px,${galaxyPan.y}px) scale(${galaxyZoom})`,
+            transformOrigin: '50% 50%',
+            transition: (galaxyDragStart.current || mapDragState.current) ? 'none' : 'transform 0.4s cubic-bezier(0.16,1,0.3,1)',
           }}>
             {GALAXY_MAPS.length === 0 && (
               <div style={{
@@ -1397,6 +1498,38 @@ function App({ user }: { user: User | null }) {
               </div>
             )}
 
+            {/* Axon lines: cluster → children */}
+            {(() => {
+              const W = window.innerWidth;
+              const H = window.innerHeight;
+              const getPos = (mapId: string) => {
+                const off = itemPositions[mapId] || { x: 0, y: 0 };
+                const mapOff = mapOffsets[mapId] || { x: 0, y: 0 };
+                return { x: W / 2 + off.x * W / 100 + mapOff.x, y: H / 2 + off.y * H / 100 + mapOff.y };
+              };
+              const lines: React.ReactNode[] = [];
+              for (const m of GALAXY_MAPS) {
+                if (m.type !== 'cluster' || !m.children?.length) continue;
+                const cp = getPos(m.id);
+                for (const childId of m.children) {
+                  const chp = getPos(childId);
+                  const col = (() => { const coreNode = Object.values(worlds[m.rootCluster]?.neurons || {}).find(n => n.isCore); return coreNode ? getNodeColor(coreNode.id, m.rootCluster) : '80,220,200'; })();
+                  lines.push(
+                    <line key={`${m.id}-${childId}`}
+                      x1={cp.x} y1={cp.y} x2={chp.x} y2={chp.y}
+                      stroke={`rgba(${col},0.35)`} strokeWidth={1.5}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  );
+                }
+              }
+              return lines.length > 0 ? (
+                <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 1 }}>
+                  {lines}
+                </svg>
+              ) : null;
+            })()}
+
             {GALAXY_MAPS.map((mapCfg) => {
               const rootNeurons = Object.values(worlds[mapCfg.rootCluster]?.neurons || {});
               const isActive = activeGalaxyMap === mapCfg.id;
@@ -1413,6 +1546,7 @@ function App({ user }: { user: User | null }) {
                       mapDragState.current = { mapId: mapCfg.id, px: e.clientX, py: e.clientY, ox: cur.x, oy: cur.y };
                       galaxyDragMoved.current = false;
                     } else {
+                      galaxyDragIsEmpty.current = false;
                       startGalaxyLongPress(e.clientX, e.clientY);
                     }
                   }}
@@ -1422,11 +1556,14 @@ function App({ user }: { user: User | null }) {
                     handleGalaxyPointerUp();
                     if (!wasDrag && !galaxyJiggleRef.current) {
                       if (activeGalaxyMap === mapCfg.id) {
-                        if (DISABLE_CLUSTER_VIEW) {
-                          const coreId = getCoreId(mapCfg.rootCluster);
-                          dispatch({ type: 'NAVIGATE_TO', cluster: mapCfg.rootCluster, nodeId: coreId });
-                        } else {
-                          dispatch({ type: 'NAVIGATE_CLUSTER', cluster: mapCfg.rootCluster });
+                        // Clusters don't navigate into neuron view
+                        if (mapCfg.type !== 'cluster') {
+                          if (DISABLE_CLUSTER_VIEW) {
+                            const coreId = getCoreId(mapCfg.rootCluster);
+                            dispatch({ type: 'NAVIGATE_TO', cluster: mapCfg.rootCluster, nodeId: coreId });
+                          } else {
+                            dispatch({ type: 'NAVIGATE_CLUSTER', cluster: mapCfg.rootCluster });
+                          }
                         }
                       } else setActiveGalaxyMap(mapCfg.id);
                     }
@@ -1610,10 +1747,49 @@ function App({ user }: { user: User | null }) {
             })}
           </div>
 
-          {showGalaxyLayer && (
+          {showGalaxyLayer && (<>
+            {showAddChoice && (
+              <div
+                onPointerDown={e => e.stopPropagation()}
+                style={{
+                  position: 'fixed',
+                  bottom: 'calc(max(48px, env(safe-area-inset-bottom, 48px)) + 64px)',
+                  right: 28,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  zIndex: 901,
+                  alignItems: 'flex-end',
+                }}
+              >
+                {([
+                  { label: 'New Map', action: () => { setShowAddChoice(false); setShowAddMapModal(true); } },
+                  { label: 'New Cluster', action: () => { setShowAddChoice(false); setShowAddClusterModal(true); } },
+                ] as { label: string; action: () => void }[]).map(({ label, action }) => (
+                  <button key={label} onClick={action} style={{
+                    padding: '10px 20px',
+                    borderRadius: 24,
+                    background: 'rgba(8,10,18,0.92)',
+                    border: '1px solid rgba(80,220,200,0.45)',
+                    color: 'rgba(80,220,200,0.95)',
+                    fontSize: 11,
+                    letterSpacing: '0.18em',
+                    textTransform: 'uppercase',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 24px rgba(0,0,0,0.7)',
+                    backdropFilter: 'blur(12px)',
+                    WebkitBackdropFilter: 'blur(12px)',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             <button
               onPointerDown={e => e.stopPropagation()}
-              onClick={() => setShowAddMapModal(true)}
+              onClick={() => { setShowAddChoice(prev => !prev); }}
               style={{
                 position: 'fixed',
                 bottom: 'max(48px, env(safe-area-inset-bottom, 48px))',
@@ -1621,23 +1797,25 @@ function App({ user }: { user: User | null }) {
                 width: 52,
                 height: 52,
                 borderRadius: '50%',
-                background: 'rgba(80,220,200,0.18)',
+                background: showAddChoice ? 'rgba(80,220,200,0.3)' : 'rgba(80,220,200,0.18)',
                 border: '1.5px solid rgba(80,220,200,0.6)',
                 color: 'rgba(80,220,200,1)',
                 fontSize: 28,
                 fontWeight: 300,
                 cursor: 'pointer',
-                zIndex: 900,
+                zIndex: 902,
                 boxShadow: '0 4px 24px rgba(0,0,0,0.6), 0 0 24px rgba(80,220,200,0.2)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 backdropFilter: 'blur(8px)',
+                transition: 'transform 0.2s ease, background 0.15s ease',
+                transform: showAddChoice ? 'rotate(45deg)' : 'none',
               }}
             >
               <span style={{ fontSize: 30, lineHeight: 1, marginTop: -2 }}>+</span>
             </button>
-          )}
+          </>)}
 
           {galaxyJiggle && (
             <button
@@ -1738,6 +1916,47 @@ function App({ user }: { user: User | null }) {
             onCancel={() => setShowAddMapModal(false)}
           />
         )}
+
+        {showAddClusterModal && (() => {
+          const TEAL = '80,220,200';
+          return (
+            <div
+              style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+              onPointerDown={(e) => { if (e.target === e.currentTarget) { setShowAddClusterModal(false); setClusterNameInput(''); } }}
+            >
+              <div
+                style={{ background: 'rgba(8,10,18,0.98)', border: `1px solid rgba(${TEAL},0.22)`, borderRadius: 20, padding: '28px 24px 22px', width: 'min(340px, 90vw)', boxShadow: `0 20px 60px rgba(0,0,0,0.85)`, animation: 'modalEnter 0.22s cubic-bezier(0.34,1.56,0.64,1) both' }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <p style={{ fontSize: 10, letterSpacing: '0.3em', textTransform: 'uppercase', fontWeight: 900, color: `rgba(${TEAL},0.9)`, marginBottom: 22 }}>
+                  New cluster
+                </p>
+                <input
+                  autoFocus
+                  value={clusterNameInput}
+                  onChange={e => setClusterNameInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && clusterNameInput.trim()) handleCreateCluster(clusterNameInput); if (e.key === 'Escape') { setShowAddClusterModal(false); setClusterNameInput(''); } }}
+                  placeholder="Cluster name..."
+                  style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: `1px solid rgba(${TEAL},0.18)`, borderRadius: 10, padding: '10px 14px', fontSize: 15, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.9)', outline: 'none', boxSizing: 'border-box', caretColor: `rgba(${TEAL},1)`, fontFamily: 'inherit', marginBottom: 20 }}
+                  onFocus={e => { e.target.style.borderColor = `rgba(${TEAL},0.55)`; }}
+                  onBlur={e => { e.target.style.borderColor = `rgba(${TEAL},0.18)`; }}
+                />
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => { setShowAddClusterModal(false); setClusterNameInput(''); }} style={{ flex: 1, padding: '11px 0', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)', background: 'transparent', color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                  <button
+                    disabled={!clusterNameInput.trim()}
+                    onClick={() => clusterNameInput.trim() && handleCreateCluster(clusterNameInput)}
+                    style={{ flex: 2, padding: '11px 0', borderRadius: 10, border: 'none', background: clusterNameInput.trim() ? `rgba(${TEAL},0.9)` : 'rgba(255,255,255,0.08)', color: clusterNameInput.trim() ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.2)', fontSize: 11, fontWeight: 800, letterSpacing: '0.15em', textTransform: 'uppercase', cursor: clusterNameInput.trim() ? 'pointer' : 'default' }}
+                  >
+                    Create
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {introScreen}
         </>

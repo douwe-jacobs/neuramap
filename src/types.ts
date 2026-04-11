@@ -43,6 +43,8 @@ export interface MapDef {
   label: string;
   rootCluster: string;
   clusterIds?: string[];
+  type?: 'cluster';
+  children?: string[];
 }
 
 export interface AppState {

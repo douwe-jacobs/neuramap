@@ -16,7 +16,7 @@ export async function loadFromStorage(): Promise<void> {
 
     const allClusterIds: string[] = [];
     for (const mapDef of index) {
-      GALAXY_MAPS.push({ id: mapDef.id, label: mapDef.label, rootCluster: mapDef.rootCluster });
+      GALAXY_MAPS.push(mapDef);
       CLUSTER_LISTS[mapDef.id] = mapDef.clusterIds || [mapDef.rootCluster];
       for (const clusterId of (mapDef.clusterIds || [mapDef.rootCluster])) {
         const { data: wRow } = await supabase.from('neura_storage').select('value').eq('key', `world:${clusterId}`).maybeSingle();
@@ -98,11 +98,23 @@ export async function saveMapToStorage(mapDef: MapDef, worldsData: Record<string
     Object.assign(worlds, worldsData);
     Object.assign(clusterMeta, metaData);
     const idx = GALAXY_MAPS.findIndex(m => m.id === mapDef.id);
-    if (idx >= 0) GALAXY_MAPS[idx] = { id: mapDef.id, label: mapDef.label, rootCluster: mapDef.rootCluster };
-    else GALAXY_MAPS.push({ id: mapDef.id, label: mapDef.label, rootCluster: mapDef.rootCluster });
+    if (idx >= 0) GALAXY_MAPS[idx] = mapDef;
+    else GALAXY_MAPS.push(mapDef);
     CLUSTER_LISTS[mapDef.id] = mapDef.clusterIds || [];
     Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
   } catch (e) {
     console.error('saveMapToStorage failed:', e);
+  }
+}
+
+export async function saveGalaxyIndexToStorage(): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('neura_storage')
+      .upsert({ key: 'maps:index', value: JSON.stringify(GALAXY_MAPS) }, { onConflict: 'user_id,key' });
+    if (error) throw error;
+  } catch (e) {
+    console.error('saveGalaxyIndexToStorage failed:', e);
+    throw e;
   }
 }
