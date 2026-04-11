@@ -1199,7 +1199,7 @@ function App({ user }: { user: User | null }) {
   const galaxyLongPressStart = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    if (!isInGalaxy) return;
+    if (viewMode !== 'galaxy') return;
     const el = galaxyContainerRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
@@ -1222,7 +1222,7 @@ function App({ user }: { user: User | null }) {
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [isInGalaxy]);
+  }, [viewMode]);
 
   const startGalaxyLongPress = useCallback((clientX: number, clientY: number) => {
     galaxyDragStart.current = { px: clientX, py: clientY, ox: galaxyPanRef.current.x, oy: galaxyPanRef.current.y };
