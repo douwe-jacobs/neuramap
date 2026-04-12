@@ -762,11 +762,25 @@ function App({ user }: { user: User | null }) {
           setPanSnapId(snapId !== ai ? snapId : null);
           if (panIdleTimer.current) clearTimeout(panIdleTimer.current);
           panIdleTimer.current = setTimeout(commitPanSnap, 400);
-        } else if (vm === 'galaxy' && ratio > 1.3) {
-          const mapCfg = GALAXY_MAPS.find(m => m.id === activeGalaxyMapRef.current) || GALAXY_MAPS[0];
-          const coreId = getCoreId(mapCfg.rootCluster);
-          dispatch({ type: 'NAVIGATE_TO', cluster: mapCfg.rootCluster, nodeId: coreId });
-          initialDist.current = null;
+        } else if (vm === 'galaxy') {
+          e.preventDefault();
+          // Two-finger pan + pinch zoom for galaxy
+          const newMidX = (e.touches[0].pageX + e.touches[1].pageX) / 2;
+          const newMidY = (e.touches[0].pageY + e.touches[1].pageY) / 2;
+          if (twoFingerMidRef.current) {
+            const panDx = newMidX - twoFingerMidRef.current.x;
+            const panDy = newMidY - twoFingerMidRef.current.y;
+            const pan = galaxyPanRef.current;
+            const newPan = { x: pan.x + panDx, y: pan.y + panDy };
+            galaxyPanRef.current = newPan;
+            setGalaxyPan({ ...newPan });
+          }
+          twoFingerMidRef.current = { x: newMidX, y: newMidY };
+          const oldZoom = galaxyZoomRef.current;
+          const newZoom = Math.min(4, Math.max(0.2, oldZoom * ratio));
+          galaxyZoomRef.current = newZoom;
+          setGalaxyZoom(newZoom);
+          initialDist.current = currentDist;
         }
       } else {
         if      (ratio < 0.7 && vm === 'neuron')  { dispatch({ type: 'SET_VIEW_MODE', payload: 'cluster' }); initialDist.current = null; }
@@ -778,9 +792,19 @@ function App({ user }: { user: User | null }) {
     }
     const cc = currentClusterRef.current;
     const ai = activeIdRef.current;
-    if (!touchStart.current || vm !== 'neuron') return;
+    if (!touchStart.current) return;
     const dx = e.touches[0].clientX - touchStart.current.x;
     const dy = e.touches[0].clientY - touchStart.current.y;
+    if (vm === 'galaxy') {
+      // Single-finger drag → pan in galaxy view
+      const pan = galaxyPanRef.current;
+      const newPan = { x: pan.x + dx, y: pan.y + dy };
+      galaxyPanRef.current = newPan;
+      setGalaxyPan({ ...newPan });
+      touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      return;
+    }
+    if (vm !== 'neuron') return;
     const neurons = worlds[cc]?.neurons;
     if (!neurons) return;
     const swipeAngle = Math.atan2(-dy, -dx);
@@ -843,13 +867,12 @@ function App({ user }: { user: User | null }) {
   }, [showOverlay, commitPanSnap, snapZoomToDefault]);
 
   useEffect(() => {
-    const el = mainContainerRef.current;
-    if (!el) return;
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length >= 2) e.preventDefault();
     };
-    el.addEventListener('touchmove', onTouchMove, { passive: false });
-    return () => el.removeEventListener('touchmove', onTouchMove);
+    const els = [mainContainerRef.current, galaxyContainerRef.current].filter(Boolean) as HTMLElement[];
+    els.forEach(el => el.addEventListener('touchmove', onTouchMove, { passive: false }));
+    return () => els.forEach(el => el.removeEventListener('touchmove', onTouchMove));
   }, []);
 
   const [worldVersion, setWorldVersion] = useState(0);
@@ -1198,25 +1221,49 @@ function App({ user }: { user: User | null }) {
   const galaxyLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const galaxyLongPressStart = useRef<{ x: number; y: number } | null>(null);
 
+  const galaxyPinchAccumRef = useRef(0);
+  const galaxyPinchRafRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (viewMode !== 'galaxy') return;
     const el = galaxyContainerRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-      const oldZoom = galaxyZoomRef.current;
-      const newZoom = Math.min(4, Math.max(0.2, oldZoom * factor));
-      const W = window.innerWidth;
-      const H = window.innerHeight;
-      const ratio = newZoom / oldZoom;
+      if (e.ctrlKey) {
+        // Pinch-to-zoom: accumulate and apply via RAF (same as neuron view)
+        galaxyPinchAccumRef.current += e.deltaY;
+        if (!galaxyPinchRafRef.current) {
+          galaxyPinchRafRef.current = requestAnimationFrame(() => {
+            galaxyPinchRafRef.current = null;
+            const delta = galaxyPinchAccumRef.current;
+            galaxyPinchAccumRef.current = 0;
+            const oldZoom = galaxyZoomRef.current;
+            const newZoom = Math.min(4, Math.max(0.2, oldZoom * (1 - delta * 0.003)));
+            const ratio = newZoom / oldZoom;
+            const W = window.innerWidth;
+            const H = window.innerHeight;
+            const pan = galaxyPanRef.current;
+            const cursorX = (el as any)._lastWheelX ?? W / 2;
+            const cursorY = (el as any)._lastWheelY ?? H / 2;
+            const newPan = {
+              x: pan.x + (cursorX - W / 2 - pan.x) * (1 - ratio),
+              y: pan.y + (cursorY - H / 2 - pan.y) * (1 - ratio),
+            };
+            galaxyZoomRef.current = newZoom;
+            setGalaxyZoom(newZoom);
+            galaxyPanRef.current = newPan;
+            setGalaxyPan({ ...newPan });
+          });
+        }
+        (el as any)._lastWheelX = e.clientX;
+        (el as any)._lastWheelY = e.clientY;
+        return;
+      }
+      // Trackpad swipe → pan (same sensitivity as neuron view)
+      const zoom = galaxyZoomRef.current;
       const pan = galaxyPanRef.current;
-      const newPan = {
-        x: pan.x + (e.clientX - W / 2 - pan.x) * (1 - ratio),
-        y: pan.y + (e.clientY - H / 2 - pan.y) * (1 - ratio),
-      };
-      galaxyZoomRef.current = newZoom;
-      setGalaxyZoom(newZoom);
+      const newPan = { x: pan.x - e.deltaX / zoom, y: pan.y - e.deltaY / zoom };
       galaxyPanRef.current = newPan;
       setGalaxyPan({ ...newPan });
     };
@@ -1237,7 +1284,17 @@ function App({ user }: { user: User | null }) {
     }
   }, []);
 
+  const galaxyMiddlePanning = useRef(false);
+  const galaxyMiddleStart = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+
   const handleGalaxyPointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.button === 1) {
+      e.preventDefault();
+      galaxyMiddlePanning.current = true;
+      galaxyMiddleStart.current = { x: e.clientX, y: e.clientY, ox: galaxyPanRef.current.x, oy: galaxyPanRef.current.y };
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      return;
+    }
     if (e.button !== 0 && e.button !== undefined) return;
     if (e.target !== e.currentTarget) return;
     if (galaxyJiggleRef.current) return;
@@ -1247,6 +1304,13 @@ function App({ user }: { user: User | null }) {
   }, [startGalaxyLongPress]);
 
   const handleGalaxyPointerMove = useCallback((e: React.PointerEvent) => {
+    if (galaxyMiddlePanning.current && galaxyMiddleStart.current) {
+      const { x: sx, y: sy, ox, oy } = galaxyMiddleStart.current;
+      const newPan = { x: ox + (e.clientX - sx), y: oy + (e.clientY - sy) };
+      galaxyPanRef.current = newPan;
+      setGalaxyPan({ ...newPan });
+      return;
+    }
     if (mapDragState.current) {
       const ms = mapDragState.current;
       const dx = e.clientX - ms.px;
@@ -1272,6 +1336,11 @@ function App({ user }: { user: User | null }) {
   }, []);
 
   const handleGalaxyPointerUp = useCallback(async () => {
+    if (galaxyMiddlePanning.current) {
+      galaxyMiddlePanning.current = false;
+      galaxyMiddleStart.current = null;
+      return;
+    }
     if (galaxyLongPressTimer.current) { clearTimeout(galaxyLongPressTimer.current); galaxyLongPressTimer.current = null; }
     galaxyDragIsEmpty.current = false;
 
@@ -1464,7 +1533,10 @@ function App({ user }: { user: User | null }) {
           onPointerDown={handleGalaxyPointerDown}
           onPointerMove={handleGalaxyPointerMove}
           onPointerUp={handleGalaxyPointerUp}
-          onPointerCancel={handleGalaxyPointerUp}>
+          onPointerCancel={handleGalaxyPointerUp}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}>
           <style>{`
             @keyframes galaxyFloat { 0%{transform:translate(0,0)} 25%{transform:translate(18px,-40px)} 50%{transform:translate(-12px,-80px)} 75%{transform:translate(-20px,-35px)} 100%{transform:translate(0,0)} }
             @keyframes galaxyWiggle { 0%{transform:translate(-50%,-50%) rotate(-2.5deg) scale(1.02)} 100%{transform:translate(-50%,-50%) rotate(2.5deg) scale(0.98)} }
