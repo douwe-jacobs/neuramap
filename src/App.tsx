@@ -796,12 +796,12 @@ function App({ user }: { user: User | null }) {
     const dx = e.touches[0].clientX - touchStart.current.x;
     const dy = e.touches[0].clientY - touchStart.current.y;
     if (vm === 'galaxy') {
-      // Single-finger drag → pan in galaxy view
-      const pan = galaxyPanRef.current;
-      const newPan = { x: pan.x + dx, y: pan.y + dy };
-      galaxyPanRef.current = newPan;
-      setGalaxyPan({ ...newPan });
-      touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      // Single-finger swipe → magnetic map navigation (like neuron view)
+      if (galaxySwipeOriginRef.current === null) galaxySwipeOriginRef.current = activeGalaxyMapRef.current;
+      const swipeAngle = Math.atan2(dy, dx);
+      const target = findGalaxyMapInDirection(swipeAngle);
+      galaxySwipePendingRef.current = target;
+      setActiveGalaxyMap(target ?? galaxySwipeOriginRef.current ?? activeGalaxyMapRef.current);
       return;
     }
     if (vm !== 'neuron') return;
@@ -836,7 +836,22 @@ function App({ user }: { user: User | null }) {
       return;
     }
 
-    if (vm === 'galaxy') { touchStart.current = null; return; }
+    if (vm === 'galaxy') {
+      const t = e.changedTouches[0];
+      const gdx = touchStart.current ? t.clientX - touchStart.current.x : 0;
+      const gdy = touchStart.current ? t.clientY - touchStart.current.y : 0;
+      touchStart.current = null;
+      const pending = galaxySwipePendingRef.current;
+      const origin = galaxySwipeOriginRef.current;
+      galaxySwipePendingRef.current = null;
+      galaxySwipeOriginRef.current = null;
+      if (pending && Math.hypot(gdx, gdy) >= 20) {
+        setActiveGalaxyMap(pending);
+      } else if (origin) {
+        setActiveGalaxyMap(origin);
+      }
+      return;
+    }
     const dest = pendingTarget.current;
     pendingTarget.current = null;
     setHighlightedTarget(null);
@@ -873,6 +888,20 @@ function App({ user }: { user: User | null }) {
     const els = [mainContainerRef.current, galaxyContainerRef.current].filter(Boolean) as HTMLElement[];
     els.forEach(el => el.addEventListener('touchmove', onTouchMove, { passive: false }));
     return () => els.forEach(el => el.removeEventListener('touchmove', onTouchMove));
+  }, []);
+
+  // Ignore height-only resize (mobile chrome show/hide) to prevent map position jumps
+  useEffect(() => {
+    let lastW = window.innerWidth;
+    const onResize = () => {
+      if (window.innerWidth !== lastW) {
+        lastW = window.innerWidth;
+        baseHeightRef.current = window.innerHeight;
+        setWorldVersion(v => v + 1);
+      }
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, []);
 
   const [worldVersion, setWorldVersion] = useState(0);
@@ -1203,6 +1232,9 @@ function App({ user }: { user: User | null }) {
   const galaxyDragMoved = useRef(false);
   const galaxyDragIsEmpty = useRef(false);
   const itemPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
+  const galaxySwipePendingRef = useRef<string | null>(null);
+  const galaxySwipeOriginRef = useRef<string | null>(null);
+  const baseHeightRef = useRef(window.innerHeight);
 
   const [mapOffsets, setMapOffsets] = useState<Record<string, { x: number; y: number }>>(() => {
     try { return JSON.parse(localStorage.getItem('neura_map_offsets') || '{}'); } catch { return {}; }
@@ -1223,44 +1255,64 @@ function App({ user }: { user: User | null }) {
 
   const galaxyPinchAccumRef = useRef(0);
   const galaxyPinchRafRef = useRef<number | null>(null);
+  const galaxyLastWheelPos = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     if (viewMode !== 'galaxy') return;
     const el = galaxyContainerRef.current;
     if (!el) return;
+    const applyZoom = (delta: number, cx: number, cy: number) => {
+      const oldZoom = galaxyZoomRef.current;
+      const newZoom = Math.min(4, Math.max(0.2, oldZoom * (1 - delta * 0.003)));
+      const ratio = newZoom / oldZoom;
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const pan = galaxyPanRef.current;
+      const newPan = {
+        x: pan.x + (cx - W / 2 - pan.x) * (1 - ratio),
+        y: pan.y + (cy - H / 2 - pan.y) * (1 - ratio),
+      };
+      galaxyZoomRef.current = newZoom;
+      setGalaxyZoom(newZoom);
+      galaxyPanRef.current = newPan;
+      setGalaxyPan({ ...newPan });
+    };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       if (e.ctrlKey) {
-        // Pinch-to-zoom: accumulate and apply via RAF (same as neuron view)
+        // Pinch-to-zoom via RAF to avoid jank (same as neuron view)
         galaxyPinchAccumRef.current += e.deltaY;
+        galaxyLastWheelPos.current = { x: e.clientX, y: e.clientY };
         if (!galaxyPinchRafRef.current) {
           galaxyPinchRafRef.current = requestAnimationFrame(() => {
             galaxyPinchRafRef.current = null;
             const delta = galaxyPinchAccumRef.current;
             galaxyPinchAccumRef.current = 0;
-            const oldZoom = galaxyZoomRef.current;
-            const newZoom = Math.min(4, Math.max(0.2, oldZoom * (1 - delta * 0.003)));
-            const ratio = newZoom / oldZoom;
-            const W = window.innerWidth;
-            const H = window.innerHeight;
-            const pan = galaxyPanRef.current;
-            const cursorX = (el as any)._lastWheelX ?? W / 2;
-            const cursorY = (el as any)._lastWheelY ?? H / 2;
-            const newPan = {
-              x: pan.x + (cursorX - W / 2 - pan.x) * (1 - ratio),
-              y: pan.y + (cursorY - H / 2 - pan.y) * (1 - ratio),
-            };
-            galaxyZoomRef.current = newZoom;
-            setGalaxyZoom(newZoom);
-            galaxyPanRef.current = newPan;
-            setGalaxyPan({ ...newPan });
+            const pos = galaxyLastWheelPos.current ?? { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+            applyZoom(delta, pos.x, pos.y);
           });
         }
-        (el as any)._lastWheelX = e.clientX;
-        (el as any)._lastWheelY = e.clientY;
         return;
       }
-      // Trackpad swipe → pan (same sensitivity as neuron view)
+      if (e.deltaX === 0) {
+        // Vertical scroll wheel → zoom toward cursor (same as neuron view: 0.002 factor)
+        const W = window.innerWidth;
+        const H = window.innerHeight;
+        const oldZoom = galaxyZoomRef.current;
+        const newZoom = Math.min(4, Math.max(0.2, oldZoom * (1 - e.deltaY * 0.002)));
+        const ratio = newZoom / oldZoom;
+        const pan = galaxyPanRef.current;
+        const newPan = {
+          x: pan.x + (e.clientX - W / 2 - pan.x) * (1 - ratio),
+          y: pan.y + (e.clientY - H / 2 - pan.y) * (1 - ratio),
+        };
+        galaxyZoomRef.current = newZoom;
+        setGalaxyZoom(newZoom);
+        galaxyPanRef.current = newPan;
+        setGalaxyPan({ ...newPan });
+        return;
+      }
+      // Trackpad two-finger swipe → pan (same sensitivity as neuron view)
       const zoom = galaxyZoomRef.current;
       const pan = galaxyPanRef.current;
       const newPan = { x: pan.x - e.deltaX / zoom, y: pan.y - e.deltaY / zoom };
@@ -1270,6 +1322,34 @@ function App({ user }: { user: User | null }) {
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, [viewMode]);
+
+  const findGalaxyMapInDirection = useCallback((angle: number): string | null => {
+    const currentId = activeGalaxyMapRef.current;
+    if (!currentId || GALAXY_MAPS.length < 2) return null;
+    const W = window.innerWidth;
+    const H = baseHeightRef.current;
+    const getPos = (mapId: string) => {
+      const off = itemPositionsRef.current[mapId] || { x: 0, y: 0 };
+      const mapOff = mapOffsetsRef.current[mapId] || { x: 0, y: 0 };
+      return { x: off.x * W / 100 + mapOff.x, y: off.y * H / 100 + mapOff.y };
+    };
+    const origin = getPos(currentId);
+    let best: string | null = null;
+    let minScore = Infinity;
+    for (const m of GALAXY_MAPS) {
+      if (m.id === currentId) continue;
+      const pos = getPos(m.id);
+      const a = Math.atan2(pos.y - origin.y, pos.x - origin.x);
+      let d = Math.abs(angle - a);
+      if (d > Math.PI) d = 2 * Math.PI - d;
+      if (d < Math.PI) {
+        const dist = Math.hypot(pos.x - origin.x, pos.y - origin.y);
+        const score = d * 1000 + dist;
+        if (score < minScore) { minScore = score; best = m.id; }
+      }
+    }
+    return best;
+  }, []);
 
   const startGalaxyLongPress = useCallback((clientX: number, clientY: number) => {
     galaxyDragStart.current = { px: clientX, py: clientY, ox: galaxyPanRef.current.x, oy: galaxyPanRef.current.y };
@@ -1349,11 +1429,11 @@ function App({ user }: { user: User | null }) {
     if (ms && galaxyJiggleRef.current && galaxyDragMoved.current) {
       const zoom = galaxyZoomRef.current;
       const W = window.innerWidth;
-      const H = window.innerHeight;
+      const BH = baseHeightRef.current;
       const getPos = (mapId: string) => {
         const off = itemPositionsRef.current[mapId] || { x: 0, y: 0 };
         const mapOff = mapOffsetsRef.current[mapId] || { x: 0, y: 0 };
-        return { x: W / 2 + off.x * W / 100 + mapOff.x, y: H / 2 + off.y * H / 100 + mapOff.y };
+        return { x: W / 2 + off.x * W / 100 + mapOff.x, y: BH / 2 + off.y * BH / 100 + mapOff.y };
       };
       const draggedPos = getPos(ms.mapId);
       let dropCluster: string | null = null;
@@ -1573,11 +1653,11 @@ function App({ user }: { user: User | null }) {
             {/* Axon lines: cluster → children */}
             {(() => {
               const W = window.innerWidth;
-              const H = window.innerHeight;
+              const BH = baseHeightRef.current;
               const getPos = (mapId: string) => {
                 const off = itemPositions[mapId] || { x: 0, y: 0 };
                 const mapOff = mapOffsets[mapId] || { x: 0, y: 0 };
-                return { x: W / 2 + off.x * W / 100 + mapOff.x, y: H / 2 + off.y * H / 100 + mapOff.y };
+                return { x: W / 2 + off.x * W / 100 + mapOff.x, y: BH / 2 + off.y * BH / 100 + mapOff.y };
               };
               const lines: React.ReactNode[] = [];
               for (const m of GALAXY_MAPS) {
@@ -1644,8 +1724,8 @@ function App({ user }: { user: User | null }) {
                   onPointerCancel={handleGalaxyPointerUp}
                   style={{
                     position: 'absolute',
-                    left: `calc(50% + ${offset.x}vw + ${mapOff.x}px)`,
-                    top:  `calc(50% + ${offset.y}vh + ${mapOff.y}px)`,
+                    left: `calc(50% + ${offset.x * window.innerWidth / 100 + mapOff.x}px)`,
+                    top:  `calc(50% + ${offset.y * baseHeightRef.current / 100 + mapOff.y}px)`,
                     transform: 'translate(-50%, -50%)',
                     cursor: galaxyJiggle ? 'grab' : 'pointer',
                     transition: 'filter 0.4s ease, opacity 0.4s ease',
