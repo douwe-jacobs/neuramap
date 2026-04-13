@@ -1508,6 +1508,30 @@ function App({ user }: { user: User | null }) {
             m.children = (m.children || []).filter(id => id !== ms.mapId);
           }
         }
+
+        // Snap dropped map to 3× cluster node diameter from cluster center
+        const clusterPos = getPos(dropCluster);
+        const ddx = draggedPos.x - clusterPos.x;
+        const ddy = draggedPos.y - clusterPos.y;
+        const dist = Math.hypot(ddx, ddy);
+        if (dist > 0) {
+          const clusterCore = Object.values(worlds[cluster.rootCluster]?.neurons || {}).find(n => n.isCore);
+          const nodeDiameter = (clusterCore?.size ?? 300) * 1.11 * GALAXY_SCALE * 1.4;
+          const snapDist = nodeDiameter * 3;
+          const nx = ddx / dist;
+          const ny = ddy / dist;
+          const snapX = clusterPos.x + nx * snapDist;
+          const snapY = clusterPos.y + ny * snapDist;
+          const baseOff = itemPositionsRef.current[ms.mapId] || { x: 0, y: 0 };
+          const newMapOff = {
+            x: snapX - W / 2 - baseOff.x * W / 100,
+            y: snapY - BH / 2 - baseOff.y * BH / 100,
+          };
+          mapOffsetsRef.current = { ...mapOffsetsRef.current, [ms.mapId]: newMapOff };
+          setMapOffsets({ ...mapOffsetsRef.current });
+          localStorage.setItem('neura_map_offsets', JSON.stringify(mapOffsetsRef.current));
+        }
+
         await saveGalaxyIndexToStorage();
         setWorldVersion(v => v + 1);
       }
