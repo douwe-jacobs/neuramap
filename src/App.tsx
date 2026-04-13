@@ -663,9 +663,36 @@ function App({ user }: { user: User | null }) {
       }
       if (e.key === 'Escape') { dispatch({ type: 'NAVIGATE_GALAXY' }); return; }
       if (vm === 'galaxy') {
-        const idx = GALAXY_MAPS.findIndex(m => m.id === activeGalaxyMapRef.current);
-        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') setActiveGalaxyMap(GALAXY_MAPS[(idx + 1) % GALAXY_MAPS.length].id);
-        if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   setActiveGalaxyMap(GALAXY_MAPS[(idx - 1 + GALAXY_MAPS.length) % GALAXY_MAPS.length].id);
+        const dirVec: Record<string, [number, number]> = {
+          ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1],
+        };
+        const dir = dirVec[e.key];
+        if (dir && GALAXY_MAPS.length > 1) {
+          const currentId = activeGalaxyMapRef.current;
+          const W = window.innerWidth;
+          const BH = baseHeightRef.current;
+          const getPos = (mapId: string) => {
+            const off = itemPositionsRef.current[mapId] || { x: 0, y: 0 };
+            const mapOff = mapOffsetsRef.current[mapId] || { x: 0, y: 0 };
+            return { x: off.x * W / 100 + mapOff.x, y: off.y * BH / 100 + mapOff.y };
+          };
+          const origin = getPos(currentId);
+          let best: string | null = null;
+          let bestScore = Infinity;
+          for (const m of GALAXY_MAPS) {
+            if (m.id === currentId) continue;
+            const pos = getPos(m.id);
+            const dx = pos.x - origin.x;
+            const dy = pos.y - origin.y;
+            const dot = dx * dir[0] + dy * dir[1];
+            if (dot <= 0) continue; // wrong half-plane
+            const dist = Math.hypot(dx, dy);
+            const cosA = dot / dist; // 1 = perfectly on-axis, approaches 0 at 90°
+            const score = dist / cosA; // penalise off-axis nodes
+            if (score < bestScore) { bestScore = score; best = m.id; }
+          }
+          if (best) setActiveGalaxyMap(best);
+        }
         return;
       }
       if (vm === 'cluster') {
