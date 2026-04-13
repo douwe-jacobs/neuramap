@@ -1517,7 +1517,7 @@ function App({ user }: { user: User | null }) {
         if (dist > 0) {
           const clusterCore = Object.values(worlds[cluster.rootCluster]?.neurons || {}).find(n => n.isCore);
           const nodeDiameter = (clusterCore?.size ?? 300) * 1.11 * GALAXY_SCALE * 1.4;
-          const snapDist = nodeDiameter * 3;
+          const snapDist = nodeDiameter * 2;
           const nx = ddx / dist;
           const ny = ddy / dist;
           const snapX = clusterPos.x + nx * snapDist;
