@@ -1420,7 +1420,7 @@ function App({ user }: { user: User | null }) {
           if (m.id === ms.mapId || m.type !== 'cluster') continue;
           const clusterPos = getPos(m.id);
           const coreNode = Object.values(worlds[m.rootCluster]?.neurons || {}).find(n => n.isCore);
-          const hitRadius = (coreNode?.size ?? 300) * 1.11 * GALAXY_SCALE * zoom / 2;
+          const hitRadius = (coreNode?.size ?? 300) * 1.11 * GALAXY_SCALE * 1.618 * zoom / 2;
           const screenDist = Math.hypot((draggedPos.x - clusterPos.x) * zoom, (draggedPos.y - clusterPos.y) * zoom);
           if (screenDist < hitRadius + 30) { newTarget = m.id; break; }
         }
@@ -1782,7 +1782,8 @@ function App({ user }: { user: User | null }) {
                   }}>
                   {isDropTarget && (() => {
                     const cn = rootNeurons.find(n => n.isCore);
-                    const cr = cn ? (cn.size * 1.11 * GALAXY_SCALE) / 2 : 25;
+                    const effectiveScale = mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.618 : GALAXY_SCALE;
+                    const cr = cn ? (cn.size * 1.11 * effectiveScale) / 2 : 25;
                     const col = cn ? getNodeColor(cn.id, mapCfg.rootCluster) : '80,220,200';
                     return (
                       <div style={{
@@ -1800,7 +1801,8 @@ function App({ user }: { user: User | null }) {
                   })()}
                   {galaxyJiggle && (() => {
                     const coreNode = rootNeurons.find(n => n.isCore);
-                    const coreRadius = coreNode ? (coreNode.size * 1.11 * GALAXY_SCALE) / 2 : 25;
+                    const effectiveScale = mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.618 : GALAXY_SCALE;
+                    const coreRadius = coreNode ? (coreNode.size * 1.11 * effectiveScale) / 2 : 25;
                     const coreCol = coreNode ? getNodeColor(coreNode.id, mapCfg.rootCluster) : '80,220,200';
                     const isPickerOpen = galaxyColorPickerMapId === mapCfg.id;
                     return (
@@ -1922,7 +1924,7 @@ function App({ user }: { user: User | null }) {
                     );
                   })()}
                   <div style={{
-                    transform: `scale(${GALAXY_SCALE})`,
+                    transform: `scale(${mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.618 : GALAXY_SCALE})`,
                     transformOrigin: 'center',
                     position: 'relative', width: 0, height: 0,
                   }}>
