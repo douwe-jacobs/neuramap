@@ -1232,7 +1232,11 @@ function App({ user }: { user: User | null }) {
   const galaxyDragMoved = useRef(false);
   const galaxyDragIsEmpty = useRef(false);
   const itemPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
+  // Stable positions: assigned once per map id, never recomputed on delete
+  const stableItemPositions = useRef<Record<string, { x: number; y: number }>>({});
   const galaxySwipePendingRef = useRef<string | null>(null);
+  const [galaxyDragTargetId, setGalaxyDragTargetId] = useState<string | null>(null);
+  const [galaxyDraggingMapId, setGalaxyDraggingMapId] = useState<string | null>(null);
   const galaxySwipeOriginRef = useRef<string | null>(null);
   const baseHeightRef = useRef(window.innerHeight);
 
@@ -1400,6 +1404,28 @@ function App({ user }: { user: User | null }) {
       mapOffsetsRef.current = { ...mapOffsetsRef.current, [ms.mapId]: newOff };
       setMapOffsets({ ...mapOffsetsRef.current });
       localStorage.setItem('neura_map_offsets', JSON.stringify(mapOffsetsRef.current));
+      // Update drop target highlight
+      if (galaxyDragMoved.current) {
+        const zoom = galaxyZoomRef.current;
+        const W = window.innerWidth;
+        const BH = baseHeightRef.current;
+        const getPos = (mapId: string) => {
+          const off = itemPositionsRef.current[mapId] || { x: 0, y: 0 };
+          const off2 = mapOffsetsRef.current[mapId] || { x: 0, y: 0 };
+          return { x: W / 2 + off.x * W / 100 + off2.x, y: BH / 2 + off.y * BH / 100 + off2.y };
+        };
+        const draggedPos = getPos(ms.mapId);
+        let newTarget: string | null = null;
+        for (const m of GALAXY_MAPS) {
+          if (m.id === ms.mapId || m.type !== 'cluster') continue;
+          const clusterPos = getPos(m.id);
+          const coreNode = Object.values(worlds[m.rootCluster]?.neurons || {}).find(n => n.isCore);
+          const hitRadius = (coreNode?.size ?? 300) * 1.11 * GALAXY_SCALE * zoom / 2;
+          const screenDist = Math.hypot((draggedPos.x - clusterPos.x) * zoom, (draggedPos.y - clusterPos.y) * zoom);
+          if (screenDist < hitRadius + 30) { newTarget = m.id; break; }
+        }
+        setGalaxyDragTargetId(newTarget);
+      }
       return;
     }
     if (!galaxyDragStart.current) return;
@@ -1463,6 +1489,8 @@ function App({ user }: { user: User | null }) {
     mapDragState.current = null;
     galaxyDragStart.current = null;
     galaxyLongPressStart.current = null;
+    setGalaxyDragTargetId(null);
+    setGalaxyDraggingMapId(null);
   }, []);
 
   const handleDeleteMap = useCallback(async (mapId: string) => {
@@ -1568,7 +1596,6 @@ function App({ user }: { user: User | null }) {
 
   const BLOB = '52% 48% 60% 40% / 48% 52% 48% 52%';
   const GALAXY_SCALE = 0.164;
-  const gN = GALAXY_MAPS.length;
   const xLeft  = -24;
   const xRight =  24;
   const ySpread = 18;
@@ -1576,17 +1603,31 @@ function App({ user }: { user: User | null }) {
     { dx:  1.5, dy: -1 }, { dx: -1.5, dy:  1.5 }, { dx:  2,   dy:  1 },
     { dx: -1,   dy: -1.5 }, { dx:  1,  dy:  2   }, { dx: -2,   dy: -1 },
   ];
-  const itemPositions: Record<string, { x: number; y: number }> = {};
-  GALAXY_MAPS.forEach((m, i) => {
-    const col = i % 2;
-    const row = Math.floor(i / 2);
-    const totalRows = Math.ceil(gN / 2);
-    const yFrac = totalRows <= 1 ? 0.5 : row / (totalRows - 1);
-    const yBase = totalRows <= 1 ? 0 : -ySpread + yFrac * (ySpread * 2);
-    const x = col === 0 ? xLeft : xRight;
-    const j = jitter[i % jitter.length];
-    itemPositions[m.id] = { x: x + j.dx, y: yBase + j.dy };
-  });
+  // Assign stable positions to new maps only; never reassign existing ones
+  {
+    const known = stableItemPositions.current;
+    // Remove entries for deleted maps
+    for (const id of Object.keys(known)) {
+      if (!GALAXY_MAPS.find(m => m.id === id)) delete known[id];
+    }
+    // Assign positions only to maps that don't have one yet
+    const unpositioned = GALAXY_MAPS.filter(m => !known[m.id]);
+    if (unpositioned.length > 0) {
+      const gN = GALAXY_MAPS.length;
+      GALAXY_MAPS.forEach((m, i) => {
+        if (known[m.id]) return;
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        const totalRows = Math.ceil(gN / 2);
+        const yFrac = totalRows <= 1 ? 0.5 : row / (totalRows - 1);
+        const yBase = totalRows <= 1 ? 0 : -ySpread + yFrac * (ySpread * 2);
+        const x = col === 0 ? xLeft : xRight;
+        const j = jitter[i % jitter.length];
+        known[m.id] = { x: x + j.dx, y: yBase + j.dy };
+      });
+    }
+  }
+  const itemPositions = stableItemPositions.current;
   itemPositionsRef.current = itemPositions;
 
   return (
@@ -1676,7 +1717,7 @@ function App({ user }: { user: User | null }) {
                 }
               }
               return lines.length > 0 ? (
-                <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 1 }}>
+                <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 0 }}>
                   {lines}
                 </svg>
               ) : null;
@@ -1688,6 +1729,8 @@ function App({ user }: { user: User | null }) {
               const offset = itemPositions[mapCfg.id] || { x: 0, y: 0 };
               const mapOff = mapOffsets[mapCfg.id] || { x: 0, y: 0 };
               const mapIdx = GALAXY_MAPS.indexOf(mapCfg);
+              const isDraggingThis = galaxyDraggingMapId === mapCfg.id;
+              const isDropTarget = galaxyDragTargetId === mapCfg.id;
               return (
                 <div key={mapCfg.id}
                   data-galaxy-map
@@ -1697,6 +1740,7 @@ function App({ user }: { user: User | null }) {
                       const cur = mapOffsetsRef.current[mapCfg.id] || { x: 0, y: 0 };
                       mapDragState.current = { mapId: mapCfg.id, px: e.clientX, py: e.clientY, ox: cur.x, oy: cur.y };
                       galaxyDragMoved.current = false;
+                      setGalaxyDraggingMapId(mapCfg.id);
                     } else {
                       galaxyDragIsEmpty.current = false;
                       startGalaxyLongPress(e.clientX, e.clientY);
@@ -1726,12 +1770,34 @@ function App({ user }: { user: User | null }) {
                     position: 'absolute',
                     left: `calc(50% + ${offset.x * window.innerWidth / 100 + mapOff.x}px)`,
                     top:  `calc(50% + ${offset.y * baseHeightRef.current / 100 + mapOff.y}px)`,
-                    transform: 'translate(-50%, -50%)',
+                    transform: `translate(-50%, -50%) scale(${isDropTarget ? 1.12 : 1})`,
                     cursor: galaxyJiggle ? 'grab' : 'pointer',
-                    transition: 'filter 0.4s ease, opacity 0.4s ease',
-                    filter: (!isActive && activeGalaxyMap !== '') ? 'brightness(0.5)' : 'brightness(1)',
-                    animation: galaxyJiggle ? `galaxyWiggle 0.3s ${(mapIdx % 3) * 0.05}s ease-in-out infinite alternate` : 'none',
+                    transition: isDraggingThis ? 'opacity 0.15s ease, filter 0.15s ease' : 'left 0.35s cubic-bezier(0.16,1,0.3,1), top 0.35s cubic-bezier(0.16,1,0.3,1), filter 0.4s ease, opacity 0.4s ease, transform 0.2s ease',
+                    opacity: isDraggingThis ? 0.55 : 1,
+                    filter: isDropTarget
+                      ? `brightness(1.4) drop-shadow(0 0 18px rgba(${((): string => { const cn = rootNeurons.find(n => n.isCore); return cn ? getNodeColor(cn.id, mapCfg.rootCluster) : '80,220,200'; })()},0.7))`
+                      : (!isActive && activeGalaxyMap !== '') ? 'brightness(0.5)' : 'brightness(1)',
+                    animation: galaxyJiggle && !isDraggingThis ? `galaxyWiggle 0.3s ${(mapIdx % 3) * 0.05}s ease-in-out infinite alternate` : 'none',
+                    zIndex: isDraggingThis ? 20 : isDropTarget ? 10 : 2,
                   }}>
+                  {isDropTarget && (() => {
+                    const cn = rootNeurons.find(n => n.isCore);
+                    const cr = cn ? (cn.size * 1.11 * GALAXY_SCALE) / 2 : 25;
+                    const col = cn ? getNodeColor(cn.id, mapCfg.rootCluster) : '80,220,200';
+                    return (
+                      <div style={{
+                        position: 'absolute',
+                        left: -cr - 6, top: -cr - 6,
+                        width: cr * 2 + 12, height: cr * 2 + 12,
+                        borderRadius: '50%',
+                        border: `2px solid rgba(${col},0.9)`,
+                        boxShadow: `0 0 20px 8px rgba(${col},0.45)`,
+                        animation: 'dropTargetPulse 0.6s ease-in-out infinite alternate',
+                        pointerEvents: 'none',
+                        zIndex: 50,
+                      }} />
+                    );
+                  })()}
                   {galaxyJiggle && (() => {
                     const coreNode = rootNeurons.find(n => n.isCore);
                     const coreRadius = coreNode ? (coreNode.size * 1.11 * GALAXY_SCALE) / 2 : 25;
