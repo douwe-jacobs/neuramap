@@ -670,11 +670,10 @@ function App({ user }: { user: User | null }) {
         if (dir && GALAXY_MAPS.length > 1) {
           const currentId = activeGalaxyMapRef.current;
           const W = window.innerWidth;
-          const BH = baseHeightRef.current;
           const getPos = (mapId: string) => {
             const off = itemPositionsRef.current[mapId] || { x: 0, y: 0 };
             const mapOff = mapOffsetsRef.current[mapId] || { x: 0, y: 0 };
-            return { x: off.x * W / 100 + mapOff.x, y: off.y * BH / 100 + mapOff.y };
+            return { x: off.x + mapOff.x, y: off.y + mapOff.y };
           };
           const origin = getPos(currentId);
           let best: string | null = null;
@@ -1357,12 +1356,10 @@ function App({ user }: { user: User | null }) {
   const findGalaxyMapInDirection = useCallback((angle: number): string | null => {
     const currentId = activeGalaxyMapRef.current;
     if (!currentId || GALAXY_MAPS.length < 2) return null;
-    const W = window.innerWidth;
-    const H = baseHeightRef.current;
     const getPos = (mapId: string) => {
       const off = itemPositionsRef.current[mapId] || { x: 0, y: 0 };
       const mapOff = mapOffsetsRef.current[mapId] || { x: 0, y: 0 };
-      return { x: off.x * W / 100 + mapOff.x, y: off.y * H / 100 + mapOff.y };
+      return { x: off.x + mapOff.x, y: off.y + mapOff.y };
     };
     const origin = getPos(currentId);
     let best: string | null = null;
@@ -1439,7 +1436,7 @@ function App({ user }: { user: User | null }) {
         const getPos = (mapId: string) => {
           const off = itemPositionsRef.current[mapId] || { x: 0, y: 0 };
           const off2 = mapOffsetsRef.current[mapId] || { x: 0, y: 0 };
-          return { x: W / 2 + off.x * W / 100 + off2.x, y: BH / 2 + off.y * BH / 100 + off2.y };
+          return { x: W / 2 + off.x + off2.x, y: BH / 2 + off.y + off2.y };
         };
         const draggedPos = getPos(ms.mapId);
         let newTarget: string | null = null;
@@ -1486,7 +1483,7 @@ function App({ user }: { user: User | null }) {
       const getPos = (mapId: string) => {
         const off = itemPositionsRef.current[mapId] || { x: 0, y: 0 };
         const mapOff = mapOffsetsRef.current[mapId] || { x: 0, y: 0 };
-        return { x: W / 2 + off.x * W / 100 + mapOff.x, y: BH / 2 + off.y * BH / 100 + mapOff.y };
+        return { x: W / 2 + off.x + mapOff.x, y: BH / 2 + off.y + mapOff.y };
       };
       const draggedPos = getPos(ms.mapId);
       let dropCluster: string | null = null;
@@ -1524,8 +1521,8 @@ function App({ user }: { user: User | null }) {
           const snapY = clusterPos.y + ny * snapDist;
           const baseOff = itemPositionsRef.current[ms.mapId] || { x: 0, y: 0 };
           const newMapOff = {
-            x: snapX - W / 2 - baseOff.x * W / 100,
-            y: snapY - BH / 2 - baseOff.y * BH / 100,
+            x: snapX - W / 2 - baseOff.x,
+            y: snapY - BH / 2 - baseOff.y,
           };
           mapOffsetsRef.current = { ...mapOffsetsRef.current, [ms.mapId]: newMapOff };
           setMapOffsets({ ...mapOffsetsRef.current });
@@ -1647,12 +1644,13 @@ function App({ user }: { user: User | null }) {
 
   const BLOB = '52% 48% 60% 40% / 48% 52% 48% 52%';
   const GALAXY_SCALE = 0.164;
-  const xLeft  = -24;
-  const xRight =  24;
-  const ySpread = 18;
+  // Fixed pixel layout — identical on all devices (derived from 1400×900 desktop reference)
+  const xLeft  = -336;
+  const xRight =  336;
+  const ySpread = 162;
   const jitter = [
-    { dx:  1.5, dy: -1 }, { dx: -1.5, dy:  1.5 }, { dx:  2,   dy:  1 },
-    { dx: -1,   dy: -1.5 }, { dx:  1,  dy:  2   }, { dx: -2,   dy: -1 },
+    { dx:  21, dy:  -9 }, { dx: -21, dy:  14 }, { dx:  28, dy:   9 },
+    { dx: -14, dy: -14 }, { dx:  14, dy:  18 }, { dx: -28, dy:  -9 },
   ];
   // Assign stable positions to new maps only; never reassign existing ones
   {
@@ -1749,7 +1747,7 @@ function App({ user }: { user: User | null }) {
               const getPos = (mapId: string) => {
                 const off = itemPositions[mapId] || { x: 0, y: 0 };
                 const mapOff = mapOffsets[mapId] || { x: 0, y: 0 };
-                return { x: W / 2 + off.x * W / 100 + mapOff.x, y: BH / 2 + off.y * BH / 100 + mapOff.y };
+                return { x: W / 2 + off.x + mapOff.x, y: BH / 2 + off.y + mapOff.y };
               };
               const lines: React.ReactNode[] = [];
               for (const m of GALAXY_MAPS) {
@@ -1819,8 +1817,8 @@ function App({ user }: { user: User | null }) {
                   onPointerCancel={handleGalaxyPointerUp}
                   style={{
                     position: 'absolute',
-                    left: `calc(50% + ${offset.x * window.innerWidth / 100 + mapOff.x}px)`,
-                    top:  `calc(50% + ${offset.y * baseHeightRef.current / 100 + mapOff.y}px)`,
+                    left: `calc(50% + ${offset.x + mapOff.x}px)`,
+                    top:  `calc(50% + ${offset.y + mapOff.y}px)`,
                     transform: `translate(-50%, -50%) scale(${isDropTarget ? 1.12 : 1})`,
                     cursor: galaxyJiggle ? 'grab' : 'pointer',
                     transition: isDraggingThis ? 'opacity 0.15s ease, filter 0.15s ease' : 'left 0.35s cubic-bezier(0.16,1,0.3,1), top 0.35s cubic-bezier(0.16,1,0.3,1), filter 0.4s ease, opacity 0.4s ease, transform 0.2s ease',
