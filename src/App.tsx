@@ -1420,7 +1420,7 @@ function App({ user }: { user: User | null }) {
           if (m.id === ms.mapId || m.type !== 'cluster') continue;
           const clusterPos = getPos(m.id);
           const coreNode = Object.values(worlds[m.rootCluster]?.neurons || {}).find(n => n.isCore);
-          const hitRadius = (coreNode?.size ?? 300) * 1.11 * GALAXY_SCALE * 1.618 * zoom / 2;
+          const hitRadius = (coreNode?.size ?? 300) * 1.11 * GALAXY_SCALE * 1.4 * zoom / 2;
           const screenDist = Math.hypot((draggedPos.x - clusterPos.x) * zoom, (draggedPos.y - clusterPos.y) * zoom);
           if (screenDist < hitRadius + 30) { newTarget = m.id; break; }
         }
@@ -1782,7 +1782,7 @@ function App({ user }: { user: User | null }) {
                   }}>
                   {isDropTarget && (() => {
                     const cn = rootNeurons.find(n => n.isCore);
-                    const effectiveScale = mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.618 : GALAXY_SCALE;
+                    const effectiveScale = mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.4 : GALAXY_SCALE;
                     const cr = cn ? (cn.size * 1.11 * effectiveScale) / 2 : 25;
                     const col = cn ? getNodeColor(cn.id, mapCfg.rootCluster) : '80,220,200';
                     return (
@@ -1801,7 +1801,7 @@ function App({ user }: { user: User | null }) {
                   })()}
                   {galaxyJiggle && (() => {
                     const coreNode = rootNeurons.find(n => n.isCore);
-                    const effectiveScale = mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.618 : GALAXY_SCALE;
+                    const effectiveScale = mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.4 : GALAXY_SCALE;
                     const coreRadius = coreNode ? (coreNode.size * 1.11 * effectiveScale) / 2 : 25;
                     const coreCol = coreNode ? getNodeColor(coreNode.id, mapCfg.rootCluster) : '80,220,200';
                     const isPickerOpen = galaxyColorPickerMapId === mapCfg.id;
@@ -1924,7 +1924,7 @@ function App({ user }: { user: User | null }) {
                     );
                   })()}
                   <div style={{
-                    transform: `scale(${mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.618 : GALAXY_SCALE})`,
+                    transform: `scale(${mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.4 : GALAXY_SCALE})`,
                     transformOrigin: 'center',
                     position: 'relative', width: 0, height: 0,
                   }}>
@@ -1948,7 +1948,7 @@ function App({ user }: { user: User | null }) {
                           animation: (!node.isCore && galaxyEntered && !galaxyJiggle) ? `galaxyFloat ${6 + (nodeIndex % 4) * 0.9}s ${nodeIndex * 0.6 + 0.7}s ease-in-out infinite` : 'none',
                         }}>
                           <div style={{ position: 'absolute', inset: 0, borderRadius: BLOB, boxShadow: node.isCore ? `0 0 100px 30px rgba(${col},0.4)${isActive ? `, 0 0 160px 60px rgba(${col},0.5)` : ''}` : `0 0 20px 6px rgba(${col},0.12)` }} />
-                          <div style={{ position: 'absolute', inset: 0, borderRadius: BLOB, overflow: 'hidden', background: node.isCore ? `radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.92) 100%), radial-gradient(ellipse at 40% 38%, rgba(${fill},0.55) 0%, rgba(${fill},0.3) 50%, rgba(${fill},0.08) 100%), rgb(4,4,8)` : `radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.72) 70%, rgba(0,0,0,0.92) 100%), radial-gradient(ellipse at 40% 38%, rgba(${fill},0.40) 0%, rgba(${fill},0.20) 50%, rgba(${fill},0.05) 100%), rgb(4,4,8)`, boxShadow: node.isCore ? `0 0 0 ${isActive ? '12px' : '8px'} rgba(${col},${isActive ? '1' : '0.8'})` : `0 0 0 2px rgba(${col},0.2)` }}>
+                          <div style={{ position: 'absolute', inset: 0, borderRadius: BLOB, overflow: 'hidden', background: node.isCore ? `radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.92) 100%), radial-gradient(ellipse at 40% 38%, rgba(${fill},0.55) 0%, rgba(${fill},0.3) 50%, rgba(${fill},0.08) 100%), rgb(4,4,8)` : `radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.72) 70%, rgba(0,0,0,0.92) 100%), radial-gradient(ellipse at 40% 38%, rgba(${fill},0.40) 0%, rgba(${fill},0.20) 50%, rgba(${fill},0.05) 100%), rgb(4,4,8)`, boxShadow: node.isCore ? `0 0 0 1.5px rgba(${col},${isActive ? '0.9' : '0.3'})` : `0 0 0 1.5px rgba(${col},0.2)` }}>
                             <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 35%, rgba(0,0,0,0.95) 100%)' }} />
                           </div>
                           {node.isCore && (
