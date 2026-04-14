@@ -1265,7 +1265,19 @@ function App({ user }: { user: User | null }) {
     stableItemPositionsLoaded.current = true;
     try {
       const saved = localStorage.getItem('neura_galaxy_base_positions');
-      if (saved) Object.assign(stableItemPositions.current, JSON.parse(saved));
+      if (saved) {
+        const parsed: Record<string, { x: number; y: number }> = JSON.parse(saved);
+        // Discard stale data from the old vw/vh system — positions were small fractions
+        // (e.g. ±24) instead of real pixels (e.g. ±336). If all x values are within
+        // [-100, 100] the cache is from the old system; clear it and recalculate.
+        const xs = Object.values(parsed).map(p => p.x);
+        const stale = xs.length > 0 && xs.every(x => x >= -100 && x <= 100);
+        if (stale) {
+          localStorage.removeItem('neura_galaxy_base_positions');
+        } else {
+          Object.assign(stableItemPositions.current, parsed);
+        }
+      }
     } catch {}
   }
   const galaxySwipePendingRef = useRef<string | null>(null);
