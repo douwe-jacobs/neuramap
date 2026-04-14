@@ -1260,6 +1260,14 @@ function App({ user }: { user: User | null }) {
   const itemPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
   // Stable positions: assigned once per map id, never recomputed on delete
   const stableItemPositions = useRef<Record<string, { x: number; y: number }>>({});
+  const stableItemPositionsLoaded = useRef(false);
+  if (!stableItemPositionsLoaded.current) {
+    stableItemPositionsLoaded.current = true;
+    try {
+      const saved = localStorage.getItem('neura_galaxy_base_positions');
+      if (saved) Object.assign(stableItemPositions.current, JSON.parse(saved));
+    } catch {}
+  }
   const galaxySwipePendingRef = useRef<string | null>(null);
   const [galaxyDragTargetId, setGalaxyDragTargetId] = useState<string | null>(null);
   const [galaxyDraggingMapId, setGalaxyDraggingMapId] = useState<string | null>(null);
@@ -1655,9 +1663,10 @@ function App({ user }: { user: User | null }) {
   // Assign stable positions to new maps only; never reassign existing ones
   {
     const known = stableItemPositions.current;
+    let changed = false;
     // Remove entries for deleted maps
     for (const id of Object.keys(known)) {
-      if (!GALAXY_MAPS.find(m => m.id === id)) delete known[id];
+      if (!GALAXY_MAPS.find(m => m.id === id)) { delete known[id]; changed = true; }
     }
     // Assign positions only to maps that don't have one yet
     const unpositioned = GALAXY_MAPS.filter(m => !known[m.id]);
@@ -1673,7 +1682,11 @@ function App({ user }: { user: User | null }) {
         const x = col === 0 ? xLeft : xRight;
         const j = jitter[i % jitter.length];
         known[m.id] = { x: x + j.dx, y: yBase + j.dy };
+        changed = true;
       });
+    }
+    if (changed) {
+      try { localStorage.setItem('neura_galaxy_base_positions', JSON.stringify(known)); } catch {}
     }
   }
   const itemPositions = stableItemPositions.current;
