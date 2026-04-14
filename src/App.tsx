@@ -1307,6 +1307,33 @@ function App({ user }: { user: User | null }) {
   const galaxyPinchRafRef = useRef<number | null>(null);
   const galaxyLastWheelPos = useRef<{ x: number; y: number } | null>(null);
 
+  // Set initial galaxy zoom/pan so the active map is centered and all nodes are visible
+  useEffect(() => {
+    const positions = stableItemPositions.current;
+    const offsets = mapOffsetsRef.current;
+    const targetId = activeGalaxyMapRef.current || (GALAXY_MAPS[0]?.id ?? '');
+    const targetPos = positions[targetId];
+    if (!targetPos) return; // no maps yet
+
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+
+    // Zoom: fit the full ±336px spread (672px wide) into the viewport with 10% padding
+    const spreadPx = 336; // half of total horizontal spread
+    const fitZoom = (W / 2) / (spreadPx * 1.1);
+    const zoom = Math.min(1, fitZoom); // never zoom in beyond 1× on initial load
+
+    // Pan: center the active map's base position on screen
+    const mapOff = offsets[targetId] || { x: 0, y: 0 };
+    const nodeX = targetPos.x + mapOff.x; // position relative to world center
+    const nodeY = targetPos.y + mapOff.y;
+    const pan = { x: -nodeX * zoom, y: -nodeY * zoom };
+
+    galaxyZoomRef.current = zoom; setGalaxyZoom(zoom);
+    galaxyPanRef.current = pan;   setGalaxyPan({ ...pan });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (viewMode !== 'galaxy') return;
     const el = galaxyContainerRef.current;
