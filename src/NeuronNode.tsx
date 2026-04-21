@@ -55,7 +55,7 @@ export function NeuronNode({
   const durationMs = node.isCore ? 12000 : 20000;
   const elapsed = Date.now() - epoch;
   const animDelay = `-${elapsed % durationMs}ms`;
-  const isVisuallyActive = isHovered || (isActive && !hoveredId);
+  const isVisuallyActive = isHovered || (isActive && !hoveredId) || (node.isCore && viewMode === 'neuron');
   const blobAnim = viewMode === 'cluster' ? 'none' : `blobMorph ${node.isCore ? '12s' : '20s'} ${animDelay} infinite ease-in-out`;
 
   const color = getNodeColor(node.id, clusterId);
