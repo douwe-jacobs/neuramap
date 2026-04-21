@@ -1930,39 +1930,6 @@ function App({ user }: { user: User | null }) {
                       }} />
                     );
                   })()}
-                  {!galaxyJiggle && isActive && (() => {
-                    const coreNode = rootNeurons.find(n => n.isCore);
-                    const effectiveScale = mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.4 : GALAXY_SCALE;
-                    const coreRadius = coreNode ? (coreNode.size * 1.11 * effectiveScale) / 2 : 25;
-                    const coreCol = coreNode ? getNodeColor(coreNode.id, mapCfg.rootCluster) : '80,220,200';
-                    return (
-                      <button
-                        onPointerDown={e => e.stopPropagation()}
-                        onClick={(e) => { e.stopPropagation(); setGalaxyNucleusMapId(mapCfg.id); }}
-                        style={{
-                          position: 'absolute',
-                          top: coreRadius + 10,
-                          left: -13,
-                          width: 26, height: 26,
-                          borderRadius: '50%',
-                          background: 'rgba(90,100,110,0.88)',
-                          border: `1.5px solid rgba(${coreCol},0.5)`,
-                          color: 'rgba(210,215,220,0.95)',
-                          fontSize: 13,
-                          cursor: 'pointer',
-                          zIndex: 30,
-                          boxShadow: `0 2px 10px rgba(0,0,0,0.6), 0 0 8px rgba(${coreCol},0.3)`,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          pointerEvents: 'all',
-                          animation: 'newNodeEnter 0.4s cubic-bezier(0.34,1.56,0.64,1) both',
-                        }}
-                      >
-                        ✦
-                      </button>
-                    );
-                  })()}
                   {galaxyJiggle && (() => {
                     const coreNode = rootNeurons.find(n => n.isCore);
                     const effectiveScale = mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.4 : GALAXY_SCALE;
@@ -2084,7 +2051,6 @@ function App({ user }: { user: User | null }) {
                             </div>
                           )}
                         </div>
-
                       </>
                     );
                   })()}
@@ -2127,6 +2093,38 @@ function App({ user }: { user: User | null }) {
                       );
                     })}
                   </div>
+                  {/* Nucleus button — rendered after node container so it's on top */}
+                  {galaxyJiggle && (() => {
+                    const coreNode = rootNeurons.find(n => n.isCore);
+                    const effectiveScale = mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.4 : GALAXY_SCALE;
+                    const coreRadius = coreNode ? (coreNode.size * 1.11 * effectiveScale) / 2 : 25;
+                    const coreCol = coreNode ? getNodeColor(coreNode.id, mapCfg.rootCluster) : '80,220,200';
+                    return (
+                      <button
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); setGalaxyNucleusMapId(mapCfg.id); }}
+                        style={{
+                          position: 'absolute',
+                          top: coreRadius + 10,
+                          left: -13,
+                          width: 26, height: 26,
+                          borderRadius: '50%',
+                          background: 'rgba(90,100,110,0.88)',
+                          border: `1.5px solid rgba(${coreCol},0.5)`,
+                          color: 'rgba(210,215,220,0.95)',
+                          fontSize: 13,
+                          cursor: 'pointer',
+                          zIndex: 30,
+                          boxShadow: `0 2px 10px rgba(0,0,0,0.6), 0 0 8px rgba(${coreCol},0.3)`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        ✦
+                      </button>
+                    );
+                  })()}
                 </div>
               );
             })}
