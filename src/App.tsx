@@ -300,6 +300,8 @@ function App({ user }: { user: User | null }) {
 
   const [overlayVisible, setOverlayVisible] = useState(false);
   const overlayCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [galaxyNucleusMapId, setGalaxyNucleusMapId] = useState<string | null>(null);
+  const [galaxyNucleusVisible, setGalaxyNucleusVisible] = useState(false);
 
   const [showInputOverlay, setShowInputOverlay] = useState(false);
   const [inputOverlayVisible, setInputOverlayVisible] = useState(false);
@@ -334,6 +336,14 @@ function App({ user }: { user: User | null }) {
       setOverlayVisible(false);
     }
   }, [showOverlay]);
+
+  useEffect(() => {
+    if (galaxyNucleusMapId) {
+      requestAnimationFrame(() => requestAnimationFrame(() => setGalaxyNucleusVisible(true)));
+    } else {
+      setGalaxyNucleusVisible(false);
+    }
+  }, [galaxyNucleusMapId]);
 
   const closeOverlay = useCallback(() => {
     setOverlayVisible(false);
@@ -1293,7 +1303,6 @@ function App({ user }: { user: User | null }) {
   const mapDragState = useRef<{ mapId: string; px: number; py: number; ox: number; oy: number } | null>(null);
 
   const [deleteConfirmMapId, setDeleteConfirmMapId] = useState<string | null>(null);
-  const [galaxyNucleusMapId, setGalaxyNucleusMapId] = useState<string | null>(null);
 
   const [showAddMapModal, setShowAddMapModal] = useState(false);
   const [showAddChoice, setShowAddChoice] = useState(false);
@@ -1921,6 +1930,39 @@ function App({ user }: { user: User | null }) {
                       }} />
                     );
                   })()}
+                  {!galaxyJiggle && isActive && (() => {
+                    const coreNode = rootNeurons.find(n => n.isCore);
+                    const effectiveScale = mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.4 : GALAXY_SCALE;
+                    const coreRadius = coreNode ? (coreNode.size * 1.11 * effectiveScale) / 2 : 25;
+                    const coreCol = coreNode ? getNodeColor(coreNode.id, mapCfg.rootCluster) : '80,220,200';
+                    return (
+                      <button
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); setGalaxyNucleusMapId(mapCfg.id); }}
+                        style={{
+                          position: 'absolute',
+                          top: coreRadius + 10,
+                          left: -13,
+                          width: 26, height: 26,
+                          borderRadius: '50%',
+                          background: 'rgba(90,100,110,0.88)',
+                          border: `1.5px solid rgba(${coreCol},0.5)`,
+                          color: 'rgba(210,215,220,0.95)',
+                          fontSize: 13,
+                          cursor: 'pointer',
+                          zIndex: 30,
+                          boxShadow: `0 2px 10px rgba(0,0,0,0.6), 0 0 8px rgba(${coreCol},0.3)`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          pointerEvents: 'all',
+                          animation: 'newNodeEnter 0.4s cubic-bezier(0.34,1.56,0.64,1) both',
+                        }}
+                      >
+                        ✦
+                      </button>
+                    );
+                  })()}
                   {galaxyJiggle && (() => {
                     const coreNode = rootNeurons.find(n => n.isCore);
                     const effectiveScale = mapCfg.type === 'cluster' ? GALAXY_SCALE * 1.4 : GALAXY_SCALE;
@@ -2043,35 +2085,6 @@ function App({ user }: { user: User | null }) {
                           )}
                         </div>
 
-                        {/* Nucleus button — bottom center */}
-                        <button
-                          onPointerDown={e => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setGalaxyNucleusMapId(mapCfg.id);
-                          }}
-                          style={{
-                            position: 'absolute',
-                            top: coreRadius - 6,
-                            left: -13,
-                            width: 26, height: 26,
-                            borderRadius: '50%',
-                            background: 'rgba(90,100,110,0.88)',
-                            border: '1.5px solid rgba(180,190,200,0.5)',
-                            color: 'rgba(210,215,220,0.95)',
-                            fontSize: 13,
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            zIndex: 10,
-                            boxShadow: '0 2px 10px rgba(0,0,0,0.6)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            letterSpacing: 0,
-                          }}
-                        >
-                          ✦
-                        </button>
                       </>
                     );
                   })()}
@@ -2588,14 +2601,18 @@ function App({ user }: { user: User | null }) {
         const coreNode = Object.values(worlds[mapCfg.rootCluster]?.neurons || {}).find(n => n.isCore);
         if (!coreNode) return null;
         const nodeColor = getNodeColor(coreNode.id, mapCfg.rootCluster);
+        const closeNucleus = () => {
+          setGalaxyNucleusVisible(false);
+          setTimeout(() => setGalaxyNucleusMapId(null), 320);
+        };
         return (
           <InsightOverlay
             key={`galaxy-nucleus-${galaxyNucleusMapId}`}
             node={coreNode}
             clusterId={mapCfg.rootCluster}
             nodeColor={nodeColor}
-            visible={true}
-            onClose={() => setGalaxyNucleusMapId(null)}
+            visible={galaxyNucleusVisible}
+            onClose={closeNucleus}
             onSave={handleGalaxyNucleusSave}
           />
         );
