@@ -11,7 +11,9 @@ export function AddNodeModal({ onConfirm, onCancel }: AddNodeModalProps) {
   const labelRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    labelRef.current?.focus();
+    // Delay focus so it fires after pointer-up events that opened the modal
+    const t = setTimeout(() => labelRef.current?.focus(), 80);
+    return () => clearTimeout(t);
   }, []);
 
   const handleSubmit = (e: React.FormEvent) => {

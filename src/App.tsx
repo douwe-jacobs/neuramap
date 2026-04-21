@@ -1293,6 +1293,7 @@ function App({ user }: { user: User | null }) {
   const mapDragState = useRef<{ mapId: string; px: number; py: number; ox: number; oy: number } | null>(null);
 
   const [deleteConfirmMapId, setDeleteConfirmMapId] = useState<string | null>(null);
+  const [galaxyNucleusMapId, setGalaxyNucleusMapId] = useState<string | null>(null);
 
   const [showAddMapModal, setShowAddMapModal] = useState(false);
   const [showAddChoice, setShowAddChoice] = useState(false);
@@ -1596,6 +1597,26 @@ function App({ user }: { user: User | null }) {
     }
     setWorldVersion(v => v + 1);
   }, [activeGalaxyMap]);
+
+  const handleGalaxyNucleusSave = useCallback(async (label: string, content: NeuronContent) => {
+    if (!galaxyNucleusMapId) return;
+    const mapCfg = GALAXY_MAPS.find(m => m.id === galaxyNucleusMapId);
+    if (!mapCfg) return;
+    const neurons = worlds[mapCfg.rootCluster]?.neurons;
+    if (!neurons) return;
+    const coreNode = Object.values(neurons).find(n => n.isCore);
+    if (!coreNode) return;
+    if (label && label.trim()) {
+      coreNode.label = label.trim();
+      worlds[mapCfg.rootCluster].label = label.trim();
+      mapCfg.label = label.trim();
+    }
+    const hasContent = !!(content.body || content.image || (content.attachments && content.attachments.length > 0));
+    coreNode.content = hasContent ? content : undefined;
+    await saveWorldToStorage(mapCfg.rootCluster);
+    await saveGalaxyIndexToStorage();
+    setWorldVersion(v => v + 1);
+  }, [galaxyNucleusMapId]);
 
   const handleCreateMap = useCallback(async (label: string, insight: string) => {
     const newId = `map_${Date.now()}`;
@@ -2021,6 +2042,36 @@ function App({ user }: { user: User | null }) {
                             </div>
                           )}
                         </div>
+
+                        {/* Nucleus button — bottom center */}
+                        <button
+                          onPointerDown={e => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setGalaxyNucleusMapId(mapCfg.id);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: coreRadius - 6,
+                            left: -13,
+                            width: 26, height: 26,
+                            borderRadius: '50%',
+                            background: 'rgba(90,100,110,0.88)',
+                            border: '1.5px solid rgba(180,190,200,0.5)',
+                            color: 'rgba(210,215,220,0.95)',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            zIndex: 10,
+                            boxShadow: '0 2px 10px rgba(0,0,0,0.6)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            letterSpacing: 0,
+                          }}
+                        >
+                          ✦
+                        </button>
                       </>
                     );
                   })()}
@@ -2527,6 +2578,25 @@ function App({ user }: { user: User | null }) {
             visible={overlayVisible}
             onClose={closeOverlay}
             onSave={(label, content) => handleSaveInsight(showOverlay, label, content)}
+          />
+        );
+      })()}
+
+      {galaxyNucleusMapId && (() => {
+        const mapCfg = GALAXY_MAPS.find(m => m.id === galaxyNucleusMapId);
+        if (!mapCfg) return null;
+        const coreNode = Object.values(worlds[mapCfg.rootCluster]?.neurons || {}).find(n => n.isCore);
+        if (!coreNode) return null;
+        const nodeColor = getNodeColor(coreNode.id, mapCfg.rootCluster);
+        return (
+          <InsightOverlay
+            key={`galaxy-nucleus-${galaxyNucleusMapId}`}
+            node={coreNode}
+            clusterId={mapCfg.rootCluster}
+            nodeColor={nodeColor}
+            visible={true}
+            onClose={() => setGalaxyNucleusMapId(null)}
+            onSave={handleGalaxyNucleusSave}
           />
         );
       })()}
