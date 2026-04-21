@@ -1877,7 +1877,7 @@ function App({ user }: { user: User | null }) {
                     opacity: isDraggingThis ? 0.55 : 1,
                     filter: isDropTarget
                       ? `brightness(1.4) drop-shadow(0 0 18px rgba(${((): string => { const cn = rootNeurons.find(n => n.isCore); return cn ? getNodeColor(cn.id, mapCfg.rootCluster) : '80,220,200'; })()},0.7))`
-                      : (!isActive && activeGalaxyMap !== '') ? 'brightness(0.5)' : 'brightness(1)',
+                      : (!isActive && activeGalaxyMap !== '' && mapCfg.type !== 'cluster') ? 'brightness(0.5)' : 'brightness(1)',
                     animation: galaxyJiggle && !isDraggingThis ? `galaxyWiggle 0.3s ${(mapIdx % 3) * 0.05}s ease-in-out infinite alternate` : 'none',
                     zIndex: isDraggingThis ? 20 : isDropTarget ? 10 : 2,
                   }}>
@@ -2048,8 +2048,8 @@ function App({ user }: { user: User | null }) {
                           transition: `transform 0.7s cubic-bezier(0.34,1.56,0.64,1) ${delay}ms, opacity 0.4s ease ${delay}ms`,
                           animation: (!node.isCore && galaxyEntered && !galaxyJiggle) ? `galaxyFloat ${6 + (nodeIndex % 4) * 0.9}s ${nodeIndex * 0.6 + 0.7}s ease-in-out infinite` : 'none',
                         }}>
-                          <div style={{ position: 'absolute', inset: 0, borderRadius: BLOB, boxShadow: node.isCore ? `0 0 100px 30px rgba(${col},0.4)${isActive ? `, 0 0 160px 60px rgba(${col},0.5)` : ''}` : `0 0 20px 6px rgba(${col},0.12)` }} />
-                          <div style={{ position: 'absolute', inset: 0, borderRadius: BLOB, overflow: 'hidden', background: node.isCore ? `radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.92) 100%), radial-gradient(ellipse at 40% 38%, rgba(${fill},0.55) 0%, rgba(${fill},0.3) 50%, rgba(${fill},0.08) 100%), rgb(4,4,8)` : `radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.72) 70%, rgba(0,0,0,0.92) 100%), radial-gradient(ellipse at 40% 38%, rgba(${fill},0.40) 0%, rgba(${fill},0.20) 50%, rgba(${fill},0.05) 100%), rgb(4,4,8)`, boxShadow: node.isCore ? `0 0 0 ${mapCfg.type === 'cluster' ? '9px' : '4.5px'} rgba(${col},${isActive ? '0.9' : '0.3'})` : `0 0 0 ${mapCfg.type === 'cluster' ? '9px' : '4.5px'} rgba(${col},0.2)` }}>
+                          <div style={{ position: 'absolute', inset: 0, borderRadius: BLOB, boxShadow: node.isCore ? `0 0 100px 30px rgba(${col},0.4)${(isActive || mapCfg.type === 'cluster') ? `, 0 0 160px 60px rgba(${col},0.5)` : ''}` : `0 0 20px 6px rgba(${col},0.12)` }} />
+                          <div style={{ position: 'absolute', inset: 0, borderRadius: BLOB, overflow: 'hidden', background: node.isCore ? `radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.6) 70%, rgba(0,0,0,0.92) 100%), radial-gradient(ellipse at 40% 38%, rgba(${fill},0.55) 0%, rgba(${fill},0.3) 50%, rgba(${fill},0.08) 100%), rgb(4,4,8)` : `radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.72) 70%, rgba(0,0,0,0.92) 100%), radial-gradient(ellipse at 40% 38%, rgba(${fill},0.40) 0%, rgba(${fill},0.20) 50%, rgba(${fill},0.05) 100%), rgb(4,4,8)`, boxShadow: node.isCore ? `0 0 0 ${mapCfg.type === 'cluster' ? '9px' : '4.5px'} rgba(${col},${(isActive || mapCfg.type === 'cluster') ? '0.9' : '0.3'})` : `0 0 0 ${mapCfg.type === 'cluster' ? '9px' : '4.5px'} rgba(${col},0.2)` }}>
                             <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 35%, rgba(0,0,0,0.95) 100%)' }} />
                           </div>
                           {node.isCore && (
