@@ -146,6 +146,14 @@ function AppLoader() {
       if (event === 'SIGNED_OUT') {
         const { data } = await supabase.auth.signInAnonymously();
         setUser(data.user);
+        return;
+      }
+      // When a real (Google) session lands after OAuth redirect, reload the user's data.
+      // init() may have already run with an anonymous/null session and loaded nothing.
+      if (event === 'SIGNED_IN' && newUser && !newUser.is_anonymous) {
+        setHydrated(false);
+        await loadFromStorage();
+        setHydrated(true);
       }
     });
 
