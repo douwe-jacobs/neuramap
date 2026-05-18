@@ -2690,8 +2690,6 @@ function App({ user }: { user: User | null }) {
         />
       )}
 
-      <AuthBanner user={user} />
-
       <BottomBar onSubmit={handleAddNeuron} accentRgb={accentRgb} />
 
       {undoVisible && (
@@ -2771,6 +2769,8 @@ function App({ user }: { user: User | null }) {
         }
       `}</style>
     </div>
+
+    <AuthBanner user={user} />
     </>
   );
 }
