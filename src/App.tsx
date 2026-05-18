@@ -118,6 +118,7 @@ function NeuraLogo({ onClick }: { onClick: () => void }) {
 function AppLoader() {
   const [hydrated, setHydrated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [loadVersion, setLoadVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,10 +151,11 @@ function AppLoader() {
       }
       // When a real (Google) session lands after OAuth redirect, reload the user's data.
       // init() may have already run with an anonymous/null session and loaded nothing.
+      // Use loadVersion (not a hydration cycle) so App re-renders without losing its
+      // zoom/pan/position state — remounting App resets those to defaults.
       if (event === 'SIGNED_IN' && newUser && !newUser.is_anonymous) {
-        setHydrated(false);
         await loadFromStorage();
-        setHydrated(true);
+        setLoadVersion(v => v + 1);
       }
     });
 
@@ -168,12 +170,12 @@ function AppLoader() {
       <div style={{ color: 'rgba(255,255,255,0.15)', fontSize: 11, letterSpacing: '0.3em', textTransform: 'uppercase', fontFamily: 'monospace' }}>loading</div>
     </div>
   );
-  return <App user={user} />;
+  return <App user={user} loadVersion={loadVersion} />;
 }
 
 export default AppLoader;
 
-function App({ user }: { user: User | null }) {
+function App({ user, loadVersion }: { user: User | null; loadVersion: number }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const { viewMode, currentCluster, activeId, isTransitioning, selectedTarget, portalPhase, frozenOffset, frozenSwellScale, justLanded, showOverlay, viewTransPhase } = state;
 
@@ -377,6 +379,14 @@ function App({ user }: { user: User | null }) {
     const id = requestAnimationFrame(() => requestAnimationFrame(() => setGalaxyEntered(true)));
     return () => cancelAnimationFrame(id);
   }, [viewMode, introPhase]);
+
+  // When AppLoader reloads Supabase data after Google sign-in, snap the galaxy
+  // to the first map in the freshly loaded GALAXY_MAPS list.
+  useEffect(() => {
+    if (loadVersion === 0) return;
+    const firstId = GALAXY_MAPS[0]?.id;
+    if (firstId) { setActiveGalaxyMap(firstId); activeGalaxyMapRef.current = firstId; }
+  }, [loadVersion]);
 
   const clusterCrumbs = useMemo(() => getClusterCrumbs(currentCluster), [currentCluster]);
   const lineage = useMemo(() => getLineage(currentCluster, activeId), [currentCluster, activeId]);
