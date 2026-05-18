@@ -29,8 +29,8 @@ import { InsightOverlay } from './InsightOverlay';
 import { StarField } from './StarField';
 import { AuthBanner } from './AuthBanner';
 import { getNodeColor, getNodePalette, hslToRgb } from './colors';
-import { worlds, clusterMeta, GALAXY_MAPS, CLUSTER_LISTS, _worldColorCache } from './worldData';
-import { loadFromStorage, saveWorldToStorage, deleteMapFromStorage, saveMapToStorage, saveGalaxyIndexToStorage } from './storage';
+import { worlds, clusterMeta, GALAXY_MAPS, CLUSTER_LISTS, _worldColorCache, galaxyBasePositions, galaxyMapOffsets } from './worldData';
+import { loadFromStorage, saveWorldToStorage, deleteMapFromStorage, saveMapToStorage, saveGalaxyIndexToStorage, saveGalaxyBasePositionsToStorage, saveGalaxyMapOffsetsToStorage } from './storage';
 import { supabase } from './supabase';
 import { pushUndo, performUndo, canUndo, setOnUndoAvailable } from './undoHistory';
 import {
@@ -1291,22 +1291,9 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
   const stableItemPositionsLoaded = useRef(false);
   if (!stableItemPositionsLoaded.current) {
     stableItemPositionsLoaded.current = true;
-    try {
-      const saved = localStorage.getItem('neura_galaxy_base_positions');
-      if (saved) {
-        const parsed: Record<string, { x: number; y: number }> = JSON.parse(saved);
-        // Discard stale data from the old vw/vh system — positions were small fractions
-        // (e.g. ±24) instead of real pixels (e.g. ±336). If all x values are within
-        // [-100, 100] the cache is from the old system; clear it and recalculate.
-        const xs = Object.values(parsed).map(p => p.x);
-        const stale = xs.length > 0 && xs.every(x => x >= -100 && x <= 100);
-        if (stale) {
-          localStorage.removeItem('neura_galaxy_base_positions');
-        } else {
-          Object.assign(stableItemPositions.current, parsed);
-        }
-      }
-    } catch {}
+    // Populated by loadFromStorage() before App mounts; empty = new user, layout
+    // algorithm below will assign fresh positions and save them to Supabase.
+    Object.assign(stableItemPositions.current, galaxyBasePositions);
   }
   const galaxySwipePendingRef = useRef<string | null>(null);
   const [galaxyDragTargetId, setGalaxyDragTargetId] = useState<string | null>(null);
@@ -1315,7 +1302,7 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
   const baseHeightRef = useRef(window.innerHeight);
 
   const [mapOffsets, setMapOffsets] = useState<Record<string, { x: number; y: number }>>(() => {
-    try { return JSON.parse(localStorage.getItem('neura_map_offsets') || '{}'); } catch { return {}; }
+    return { ...galaxyMapOffsets };
   });
   const mapOffsetsRef = useRef<Record<string, { x: number; y: number }>>(mapOffsets);
   const mapDragState = useRef<{ mapId: string; px: number; py: number; ox: number; oy: number } | null>(null);
@@ -1502,7 +1489,7 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
       const newOff = { x: ms.ox + dx, y: ms.oy + dy };
       mapOffsetsRef.current = { ...mapOffsetsRef.current, [ms.mapId]: newOff };
       setMapOffsets({ ...mapOffsetsRef.current });
-      localStorage.setItem('neura_map_offsets', JSON.stringify(mapOffsetsRef.current));
+      // (save deferred to pointer-up to avoid hammering Supabase on every move event)
       // Update drop target highlight
       if (galaxyDragMoved.current) {
         const zoom = galaxyZoomRef.current;
@@ -1601,12 +1588,18 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
           };
           mapOffsetsRef.current = { ...mapOffsetsRef.current, [ms.mapId]: newMapOff };
           setMapOffsets({ ...mapOffsetsRef.current });
-          localStorage.setItem('neura_map_offsets', JSON.stringify(mapOffsetsRef.current));
+          saveGalaxyMapOffsetsToStorage(mapOffsetsRef.current).catch(console.error);
         }
 
         await saveGalaxyIndexToStorage();
         setWorldVersion(v => v + 1);
       }
+    }
+
+    // Save final drag position for any map drag that moved (cluster-drop path saves its
+    // own snapped offset above; this covers the plain free-drag case).
+    if (ms && galaxyDragMoved.current) {
+      saveGalaxyMapOffsetsToStorage(mapOffsetsRef.current).catch(console.error);
     }
 
     mapDragState.current = null;
@@ -1773,7 +1766,7 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
       });
     }
     if (changed) {
-      try { localStorage.setItem('neura_galaxy_base_positions', JSON.stringify(known)); } catch {}
+      saveGalaxyBasePositionsToStorage({ ...known }).catch(console.error);
     }
   }
   const itemPositions = stableItemPositions.current;

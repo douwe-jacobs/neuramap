@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { worlds, clusterMeta, GALAXY_MAPS, CLUSTER_LISTS, _worldColorCache } from './worldData';
+import { worlds, clusterMeta, GALAXY_MAPS, CLUSTER_LISTS, _worldColorCache, galaxyBasePositions, galaxyMapOffsets } from './worldData';
 import { reflowNeurons } from './utils';
 import type { MapDef } from './types';
 
@@ -31,8 +31,41 @@ export async function loadFromStorage(): Promise<void> {
     }
 
     Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
+
+    // Load galaxy layout positions
+    const { data: bpRow } = await supabase.from('neura_storage').select('value').eq('key', 'galaxy:base_positions').maybeSingle();
+    Object.keys(galaxyBasePositions).forEach(k => delete galaxyBasePositions[k]);
+    if (bpRow) Object.assign(galaxyBasePositions, JSON.parse(bpRow.value));
+
+    const { data: moRow } = await supabase.from('neura_storage').select('value').eq('key', 'galaxy:map_offsets').maybeSingle();
+    Object.keys(galaxyMapOffsets).forEach(k => delete galaxyMapOffsets[k]);
+    if (moRow) Object.assign(galaxyMapOffsets, JSON.parse(moRow.value));
   } catch (e) {
     console.warn('Storage load failed:', e);
+  }
+}
+
+export async function saveGalaxyBasePositionsToStorage(positions: Record<string, { x: number; y: number }>): Promise<void> {
+  try {
+    const { error } = await supabase.from('neura_storage').upsert(
+      { key: 'galaxy:base_positions', value: JSON.stringify(positions) },
+      { onConflict: 'user_id,key' }
+    );
+    if (error) throw error;
+  } catch (e) {
+    console.error('saveGalaxyBasePositionsToStorage failed:', e);
+  }
+}
+
+export async function saveGalaxyMapOffsetsToStorage(offsets: Record<string, { x: number; y: number }>): Promise<void> {
+  try {
+    const { error } = await supabase.from('neura_storage').upsert(
+      { key: 'galaxy:map_offsets', value: JSON.stringify(offsets) },
+      { onConflict: 'user_id,key' }
+    );
+    if (error) throw error;
+  } catch (e) {
+    console.error('saveGalaxyMapOffsetsToStorage failed:', e);
   }
 }
 

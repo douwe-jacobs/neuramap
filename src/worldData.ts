@@ -9,4 +9,8 @@ let GALAXY_MAPS: MapDef[] = [];
 
 export const _worldColorCache: Record<string, any> = {};
 
+// Galaxy layout — populated by loadFromStorage(), read by App on first render
+export const galaxyBasePositions: Record<string, { x: number; y: number }> = {};
+export const galaxyMapOffsets: Record<string, { x: number; y: number }> = {};
+
 export { worlds, clusterMeta, GALAXY_MAPS, CLUSTER_LISTS }
