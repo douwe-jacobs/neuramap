@@ -123,17 +123,27 @@ function AppLoader() {
   useEffect(() => {
     let cancelled = false;
 
+    // Track whether init() already ran loadFromStorage with a real (non-anonymous) user,
+    // so the onAuthStateChange handler can skip a redundant reload for token-refresh
+    // SIGNED_IN events that fire on every page load in non-private mode.
+    let initLoadedForRealUser = false;
+
     const init = async () => {
-      // Reuse existing session on refresh; create a new anonymous one on first load.
+      console.log('[neura] init: start');
       const { data: { session } } = await supabase.auth.getSession();
+      console.log('[neura] init: session', session ? `user=${session.user.id} anon=${session.user.is_anonymous}` : 'null');
       if (!session) {
+        console.log('[neura] init: no session → signInAnonymously');
         const { data } = await supabase.auth.signInAnonymously();
         if (!cancelled) setUser(data.user);
       } else {
         if (!cancelled) setUser(session.user);
+        if (!session.user.is_anonymous) initLoadedForRealUser = true;
       }
       if (!cancelled) {
+        console.log('[neura] init: loadFromStorage start');
         await loadFromStorage();
+        console.log('[neura] init: loadFromStorage done → hydrated');
         setHydrated(true);
       }
     };
@@ -142,19 +152,29 @@ function AppLoader() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       const newUser = session?.user ?? null;
+      const isAnon = !newUser || newUser.is_anonymous === true;
+      console.log('[neura] onAuthStateChange:', event, newUser ? `user=${newUser.id} anon=${newUser.is_anonymous}` : 'null');
       setUser(newUser);
-      // If signed out (e.g. after sign-out button), create a fresh anonymous session
+
       if (event === 'SIGNED_OUT') {
+        console.log('[neura] onAuthStateChange: SIGNED_OUT → signInAnonymously');
         const { data } = await supabase.auth.signInAnonymously();
         setUser(data.user);
         return;
       }
-      // When a real (Google) session lands after OAuth redirect, reload the user's data.
-      // init() may have already run with an anonymous/null session and loaded nothing.
-      // Use loadVersion (not a hydration cycle) so App re-renders without losing its
-      // zoom/pan/position state — remounting App resets those to defaults.
-      if (event === 'SIGNED_IN' && newUser && !newUser.is_anonymous) {
+
+      // Only reload data for a real (Google) user arriving via OAuth redirect.
+      // Skip if init() already loaded for this real user (covers token-refresh
+      // SIGNED_IN events that fire on every non-private page load and would
+      // otherwise trigger a duplicate full reload on startup).
+      if (event === 'SIGNED_IN' && !isAnon) {
+        if (initLoadedForRealUser) {
+          console.log('[neura] onAuthStateChange: SIGNED_IN (real user) — skipping reload, init already covered it');
+          return;
+        }
+        console.log('[neura] onAuthStateChange: SIGNED_IN (real user) → loadFromStorage');
         await loadFromStorage();
+        console.log('[neura] onAuthStateChange: loadFromStorage done → bump loadVersion');
         setLoadVersion(v => v + 1);
       }
     });
