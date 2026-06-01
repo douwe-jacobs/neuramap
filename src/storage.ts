@@ -6,46 +6,46 @@ import type { MapDef } from './types';
 
 export async function loadFromStorage(): Promise<void> {
   try {
-    console.log('[neura] loadFromStorage: fetching maps:index');
-    const { data: indexRow } = await supabase.from('neura_storage').select('value').eq('key', 'maps:index').maybeSingle();
-    if (!indexRow) {
+    // Single query — RLS filters to the current user's rows automatically.
+    console.log('[neura] loadFromStorage: fetching all keys');
+    const { data: rows, error } = await supabase.from('neura_storage').select('key,value');
+    if (error) throw error;
+
+    const store: Record<string, string> = {};
+    for (const row of rows ?? []) store[row.key] = row.value;
+
+    const indexRaw = store['maps:index'];
+    if (!indexRaw) {
       console.log('[neura] loadFromStorage: no maps:index → empty canvas, done');
-      return; // New user — start with an empty canvas
+      return;
     }
-    const index: MapDef[] = JSON.parse(indexRow.value);
+    const index: MapDef[] = JSON.parse(indexRaw);
     console.log('[neura] loadFromStorage: found', index.length, 'map(s)');
+
     GALAXY_MAPS.length = 0;
     Object.keys(CLUSTER_LISTS).forEach(k => delete CLUSTER_LISTS[k]);
 
-    const allClusterIds: string[] = [];
     for (const mapDef of index) {
       GALAXY_MAPS.push(mapDef);
       CLUSTER_LISTS[mapDef.id] = mapDef.clusterIds || [mapDef.rootCluster];
       for (const clusterId of (mapDef.clusterIds || [mapDef.rootCluster])) {
-        console.log('[neura] loadFromStorage: fetching world:', clusterId);
-        const { data: wRow } = await supabase.from('neura_storage').select('value').eq('key', `world:${clusterId}`).maybeSingle();
-        if (wRow) {
-          worlds[clusterId] = JSON.parse(wRow.value);
-          reflowNeurons(worlds[clusterId].neurons, true); // normalize sizes to current formula, preserve positions
+        const wRaw = store[`world:${clusterId}`];
+        if (wRaw) {
+          worlds[clusterId] = JSON.parse(wRaw);
+          reflowNeurons(worlds[clusterId].neurons, true);
         }
-        console.log('[neura] loadFromStorage: fetching meta:', clusterId);
-        const { data: mRow } = await supabase.from('neura_storage').select('value').eq('key', `meta:${clusterId}`).maybeSingle();
-        if (mRow) clusterMeta[clusterId] = JSON.parse(mRow.value);
-        allClusterIds.push(clusterId);
+        const mRaw = store[`meta:${clusterId}`];
+        if (mRaw) clusterMeta[clusterId] = JSON.parse(mRaw);
       }
     }
 
     Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
 
-    console.log('[neura] loadFromStorage: fetching galaxy:base_positions');
-    const { data: bpRow } = await supabase.from('neura_storage').select('value').eq('key', 'galaxy:base_positions').maybeSingle();
     Object.keys(galaxyBasePositions).forEach(k => delete galaxyBasePositions[k]);
-    if (bpRow) Object.assign(galaxyBasePositions, JSON.parse(bpRow.value));
+    if (store['galaxy:base_positions']) Object.assign(galaxyBasePositions, JSON.parse(store['galaxy:base_positions']));
 
-    console.log('[neura] loadFromStorage: fetching galaxy:map_offsets');
-    const { data: moRow } = await supabase.from('neura_storage').select('value').eq('key', 'galaxy:map_offsets').maybeSingle();
     Object.keys(galaxyMapOffsets).forEach(k => delete galaxyMapOffsets[k]);
-    if (moRow) Object.assign(galaxyMapOffsets, JSON.parse(moRow.value));
+    if (store['galaxy:map_offsets']) Object.assign(galaxyMapOffsets, JSON.parse(store['galaxy:map_offsets']));
 
     console.log('[neura] loadFromStorage: complete');
   } catch (e) {
