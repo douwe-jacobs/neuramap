@@ -164,18 +164,30 @@ function AppLoader() {
       }
 
       // Only reload data for a real (Google) user arriving via OAuth redirect.
-      // Skip if init() already loaded for this real user (covers token-refresh
-      // SIGNED_IN events that fire on every non-private page load and would
-      // otherwise trigger a duplicate full reload on startup).
+      // IMPORTANT: defer with setTimeout to break out of Supabase's internal auth
+      // lock context. In Supabase JS v2, onAuthStateChange callbacks fire while
+      // the session lock is held. Making a DB query from inside the callback
+      // (which needs the same lock to resolve the access token) causes a deadlock
+      // that silently hangs every query forever. setTimeout(fn, 0) schedules the
+      // work as a macrotask, after all pending microtasks (including the getSession()
+      // Promise in init()) have drained, so initLoadedForRealUser is correctly set
+      // by then and the auth lock is fully released.
       if (event === 'SIGNED_IN' && !isAnon) {
-        if (initLoadedForRealUser) {
-          console.log('[neura] onAuthStateChange: SIGNED_IN (real user) — skipping reload, init already covered it');
-          return;
-        }
-        console.log('[neura] onAuthStateChange: SIGNED_IN (real user) → loadFromStorage');
-        await loadFromStorage();
-        console.log('[neura] onAuthStateChange: loadFromStorage done → bump loadVersion');
-        setLoadVersion(v => v + 1);
+        console.log('[neura] onAuthStateChange: SIGNED_IN (real user) → scheduling deferred load');
+        setTimeout(async () => {
+          if (cancelled) return;
+          if (initLoadedForRealUser) {
+            console.log('[neura] onAuthStateChange: deferred SIGNED_IN — init already covered it, skipping');
+            return;
+          }
+          console.log('[neura] onAuthStateChange: deferred SIGNED_IN → loadFromStorage');
+          await loadFromStorage();
+          console.log('[neura] onAuthStateChange: loadFromStorage done → bump loadVersion + hydrate');
+          if (!cancelled) {
+            setLoadVersion(v => v + 1);
+            setHydrated(true);
+          }
+        }, 0);
       }
     });
 
