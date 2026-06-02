@@ -857,15 +857,19 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
             const panDx = newMidX - twoFingerMidRef.current.x;
             const panDy = newMidY - twoFingerMidRef.current.y;
             const pan = galaxyPanRef.current;
-            const newPan = { x: pan.x + panDx, y: pan.y + panDy };
-            galaxyPanRef.current = newPan;
-            setGalaxyPan({ ...newPan });
+            galaxyPanRef.current = { x: pan.x + panDx, y: pan.y + panDy };
           }
           twoFingerMidRef.current = { x: newMidX, y: newMidY };
           const oldZoom = galaxyZoomRef.current;
           const newZoom = Math.min(4, Math.max(0.2, oldZoom * ratio));
           galaxyZoomRef.current = newZoom;
-          setGalaxyZoom(newZoom);
+          if (!galaxyTransformRafRef.current) {
+            galaxyTransformRafRef.current = requestAnimationFrame(() => {
+              galaxyTransformRafRef.current = null;
+              setGalaxyPan({ ...galaxyPanRef.current });
+              setGalaxyZoom(galaxyZoomRef.current);
+            });
+          }
           initialDist.current = currentDist;
         }
       } else {
@@ -1353,6 +1357,8 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
   const galaxyPinchAccumRef = useRef(0);
   const galaxyPinchRafRef = useRef<number | null>(null);
   const galaxyLastWheelPos = useRef<{ x: number; y: number } | null>(null);
+  const galaxyTransformRafRef = useRef<number | null>(null);
+  const mapOffsetRafRef = useRef<number | null>(null);
 
   // Set initial galaxy zoom/pan so the active map is centered and all nodes are visible
   useEffect(() => {
@@ -1431,9 +1437,14 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
           y: pan.y + (e.clientY - H / 2 - pan.y) * (1 - ratio),
         };
         galaxyZoomRef.current = newZoom;
-        setGalaxyZoom(newZoom);
         galaxyPanRef.current = newPan;
-        setGalaxyPan({ ...newPan });
+        if (!galaxyTransformRafRef.current) {
+          galaxyTransformRafRef.current = requestAnimationFrame(() => {
+            galaxyTransformRafRef.current = null;
+            setGalaxyPan({ ...galaxyPanRef.current });
+            setGalaxyZoom(galaxyZoomRef.current);
+          });
+        }
         return;
       }
       // Trackpad two-finger swipe → pan (same sensitivity as neuron view)
@@ -1441,7 +1452,12 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
       const pan = galaxyPanRef.current;
       const newPan = { x: pan.x - e.deltaX / zoom, y: pan.y - e.deltaY / zoom };
       galaxyPanRef.current = newPan;
-      setGalaxyPan({ ...newPan });
+      if (!galaxyTransformRafRef.current) {
+        galaxyTransformRafRef.current = requestAnimationFrame(() => {
+          galaxyTransformRafRef.current = null;
+          setGalaxyPan({ ...galaxyPanRef.current });
+        });
+      }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
@@ -1508,9 +1524,13 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
   const handleGalaxyPointerMove = useCallback((e: React.PointerEvent) => {
     if (galaxyMiddlePanning.current && galaxyMiddleStart.current) {
       const { x: sx, y: sy, ox, oy } = galaxyMiddleStart.current;
-      const newPan = { x: ox + (e.clientX - sx), y: oy + (e.clientY - sy) };
-      galaxyPanRef.current = newPan;
-      setGalaxyPan({ ...newPan });
+      galaxyPanRef.current = { x: ox + (e.clientX - sx), y: oy + (e.clientY - sy) };
+      if (!galaxyTransformRafRef.current) {
+        galaxyTransformRafRef.current = requestAnimationFrame(() => {
+          galaxyTransformRafRef.current = null;
+          setGalaxyPan({ ...galaxyPanRef.current });
+        });
+      }
       return;
     }
     if (mapDragState.current) {
@@ -1520,7 +1540,12 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
       if (Math.hypot(dx, dy) > 4) galaxyDragMoved.current = true;
       const newOff = { x: ms.ox + dx, y: ms.oy + dy };
       mapOffsetsRef.current = { ...mapOffsetsRef.current, [ms.mapId]: newOff };
-      setMapOffsets({ ...mapOffsetsRef.current });
+      if (!mapOffsetRafRef.current) {
+        mapOffsetRafRef.current = requestAnimationFrame(() => {
+          mapOffsetRafRef.current = null;
+          setMapOffsets({ ...mapOffsetsRef.current });
+        });
+      }
       // (save deferred to pointer-up to avoid hammering Supabase on every move event)
       // Update drop target highlight
       if (galaxyDragMoved.current) {
@@ -1554,12 +1579,26 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
       if (galaxyLongPressTimer.current) { clearTimeout(galaxyLongPressTimer.current); galaxyLongPressTimer.current = null; }
     }
     if (!galaxyJiggleRef.current && !galaxyDragIsEmpty.current) return;
-    const newPan = { x: galaxyDragStart.current.ox + dx, y: galaxyDragStart.current.oy + dy };
-    galaxyPanRef.current = newPan;
-    setGalaxyPan({ ...newPan });
+    galaxyPanRef.current = { x: galaxyDragStart.current.ox + dx, y: galaxyDragStart.current.oy + dy };
+    if (!galaxyTransformRafRef.current) {
+      galaxyTransformRafRef.current = requestAnimationFrame(() => {
+        galaxyTransformRafRef.current = null;
+        setGalaxyPan({ ...galaxyPanRef.current });
+      });
+    }
   }, []);
 
   const handleGalaxyPointerUp = useCallback(async () => {
+    if (galaxyTransformRafRef.current) {
+      cancelAnimationFrame(galaxyTransformRafRef.current);
+      galaxyTransformRafRef.current = null;
+      setGalaxyPan({ ...galaxyPanRef.current });
+    }
+    if (mapOffsetRafRef.current) {
+      cancelAnimationFrame(mapOffsetRafRef.current);
+      mapOffsetRafRef.current = null;
+      setMapOffsets({ ...mapOffsetsRef.current });
+    }
     if (galaxyMiddlePanning.current) {
       galaxyMiddlePanning.current = false;
       galaxyMiddleStart.current = null;
@@ -1620,7 +1659,7 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
           };
           mapOffsetsRef.current = { ...mapOffsetsRef.current, [ms.mapId]: newMapOff };
           setMapOffsets({ ...mapOffsetsRef.current });
-          saveGalaxyMapOffsetsToStorage(mapOffsetsRef.current).catch(console.error);
+          saveGalaxyMapOffsetsToStorage(mapOffsetsRef.current);
         }
 
         await saveGalaxyIndexToStorage();
@@ -1631,7 +1670,7 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
     // Save final drag position for any map drag that moved (cluster-drop path saves its
     // own snapped offset above; this covers the plain free-drag case).
     if (ms && galaxyDragMoved.current) {
-      saveGalaxyMapOffsetsToStorage(mapOffsetsRef.current).catch(console.error);
+      saveGalaxyMapOffsetsToStorage(mapOffsetsRef.current);
     }
 
     mapDragState.current = null;
@@ -1798,7 +1837,7 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
       });
     }
     if (changed) {
-      saveGalaxyBasePositionsToStorage({ ...known }).catch(console.error);
+      saveGalaxyBasePositionsToStorage({ ...known });
     }
   }
   const itemPositions = stableItemPositions.current;

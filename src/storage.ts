@@ -53,28 +53,38 @@ export async function loadFromStorage(): Promise<void> {
   }
 }
 
-export async function saveGalaxyBasePositionsToStorage(positions: Record<string, { x: number; y: number }>): Promise<void> {
-  try {
-    const { error } = await supabase.from('neura_storage').upsert(
-      { key: 'galaxy:base_positions', value: JSON.stringify(positions) },
-      { onConflict: 'user_id,key' }
-    );
-    if (error) throw error;
-  } catch (e) {
-    console.error('saveGalaxyBasePositionsToStorage failed:', e);
-  }
+let basePosSaveTimer: ReturnType<typeof setTimeout> | null = null;
+export function saveGalaxyBasePositionsToStorage(positions: Record<string, { x: number; y: number }>): void {
+  if (basePosSaveTimer) clearTimeout(basePosSaveTimer);
+  basePosSaveTimer = setTimeout(async () => {
+    basePosSaveTimer = null;
+    try {
+      const { error } = await supabase.from('neura_storage').upsert(
+        { key: 'galaxy:base_positions', value: JSON.stringify(positions) },
+        { onConflict: 'user_id,key' }
+      );
+      if (error) throw error;
+    } catch (e) {
+      console.error('saveGalaxyBasePositionsToStorage failed:', e);
+    }
+  }, 1000);
 }
 
-export async function saveGalaxyMapOffsetsToStorage(offsets: Record<string, { x: number; y: number }>): Promise<void> {
-  try {
-    const { error } = await supabase.from('neura_storage').upsert(
-      { key: 'galaxy:map_offsets', value: JSON.stringify(offsets) },
-      { onConflict: 'user_id,key' }
-    );
-    if (error) throw error;
-  } catch (e) {
-    console.error('saveGalaxyMapOffsetsToStorage failed:', e);
-  }
+let mapOffsetSaveTimer: ReturnType<typeof setTimeout> | null = null;
+export function saveGalaxyMapOffsetsToStorage(offsets: Record<string, { x: number; y: number }>): void {
+  if (mapOffsetSaveTimer) clearTimeout(mapOffsetSaveTimer);
+  mapOffsetSaveTimer = setTimeout(async () => {
+    mapOffsetSaveTimer = null;
+    try {
+      const { error } = await supabase.from('neura_storage').upsert(
+        { key: 'galaxy:map_offsets', value: JSON.stringify(offsets) },
+        { onConflict: 'user_id,key' }
+      );
+      if (error) throw error;
+    } catch (e) {
+      console.error('saveGalaxyMapOffsetsToStorage failed:', e);
+    }
+  }, 1000);
 }
 
 export async function saveWorldToStorage(clusterId: string): Promise<void> {
