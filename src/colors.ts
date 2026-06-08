@@ -1,19 +1,58 @@
 import { PALETTE, ROOT_PALETTE, hslToRgb } from './palette';
 import { worlds, _worldColorCache, GALAXY_MAPS } from './worldData';
+import type { Neuron } from './types';
 
 export { hslToRgb };
+
+function bfsColorSubtree(
+  neurons: Record<string, Neuron>,
+  rootId: string,
+  baseColor: { h: number; s: number; l: number },
+  colorMap: Record<string, { h: number; s: number; l: number }>,
+): void {
+  const queue: Array<{ id: string; inheritedColor: { h: number; s: number; l: number } }> = [
+    { id: rootId, inheritedColor: baseColor },
+  ];
+  while (queue.length) {
+    const { id: nid, inheritedColor } = queue.shift()!;
+    if (colorMap[nid]) continue;
+    const n = neurons[nid];
+    const nodeColor = (nid !== rootId && n?.color) ? n.color : inheritedColor;
+    colorMap[nid] = nodeColor;
+    if (n?.children) {
+      n.children.forEach(cid => {
+        if (!colorMap[cid]) queue.push({ id: cid, inheritedColor: nodeColor });
+      });
+    }
+  }
+}
 
 export function getWorldColors(worldId: string): Record<string, { h: number; s: number; l: number }> {
   if (_worldColorCache[worldId]) return _worldColorCache[worldId];
   const world = worlds[worldId];
   if (!world) return {};
-  const coreNode = Object.values(world.neurons).find(n => n.isCore);
-  if (!coreNode) return {};
 
   const mapIndex = GALAXY_MAPS.findIndex(m => m.rootCluster === worldId);
   const rootColor = ROOT_PALETTE[(mapIndex >= 0 ? mapIndex : 0) % ROOT_PALETTE.length];
-
   const colorMap: Record<string, { h: number; s: number; l: number }> = {};
+  const coreNode = Object.values(world.neurons).find(n => n.isCore);
+
+  if (!coreNode) {
+    // No isCore node (free-node canvas): assign PALETTE colors per orphaned subtree root.
+    if (world.color) {
+      Object.keys(world.neurons).forEach(nid => { colorMap[nid] = world.color!; });
+    } else {
+      const orphanRoots = Object.values(world.neurons).filter(
+        n => !n.parentId || !world.neurons[n.parentId as string],
+      );
+      orphanRoots.forEach((rootNode, i) => {
+        const base = rootNode.color ?? PALETTE[i % PALETTE.length];
+        bfsColorSubtree(world.neurons, rootNode.id, base, colorMap);
+      });
+    }
+    _worldColorCache[worldId] = colorMap;
+    return colorMap;
+  }
 
   if (world.color) {
     Object.keys(world.neurons).forEach(nid => { colorMap[nid] = world.color!; });
@@ -21,20 +60,8 @@ export function getWorldColors(worldId: string): Record<string, { h: number; s: 
     const branches = coreNode.children || [];
     branches.forEach((branchId, i) => {
       const branchNode = world.neurons[branchId];
-      const basePal = branchNode?.color ?? PALETTE[i % PALETTE.length];
-      const queue: Array<{ id: string; inheritedColor: { h: number; s: number; l: number } }> = [{ id: branchId, inheritedColor: basePal }];
-      while (queue.length) {
-        const { id: nid, inheritedColor } = queue.shift()!;
-        if (colorMap[nid]) continue;
-        const n = world.neurons[nid];
-        const nodeColor = (nid !== branchId && n?.color) ? n.color : inheritedColor;
-        colorMap[nid] = nodeColor;
-        if (n?.children) {
-          n.children.forEach(cid => {
-            if (!colorMap[cid]) queue.push({ id: cid, inheritedColor: nodeColor });
-          });
-        }
-      }
+      const base = branchNode?.color ?? PALETTE[i % PALETTE.length];
+      bfsColorSubtree(world.neurons as any, branchId, base, colorMap);
     });
     colorMap[coreNode.id] = coreNode.color ?? rootColor;
   }

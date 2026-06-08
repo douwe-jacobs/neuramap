@@ -1151,39 +1151,44 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
 
       pushUndo(targetCluster);
       const labelToId: Record<string, string> = {};
-      let lastAddedId = '';
+
+      // If the cluster has no core yet (e.g. empty root map), promote the first
+      // generated node to isCore so reflowNeurons can run a full layout.
+      const clusterHasCore = !!Object.values(worlds[targetCluster]?.neurons ?? {}).find(n => n.isCore);
+      let syntheticCoreId: string | undefined;
 
       for (const def of neuronDefs) {
         const bodyText = def.insight ? `${def.insight}\n\n${def.body}` : def.body;
         const newId = generateNodeId();
         labelToId[def.label.toUpperCase()] = newId;
 
+        const isFirstInEmpty = !clusterHasCore && !syntheticCoreId;
+
         let parentId: string;
         if (def.parentLabel && labelToId[def.parentLabel.toUpperCase()]) {
           parentId = labelToId[def.parentLabel.toUpperCase()];
         } else {
-          parentId = coreId;
+          parentId = syntheticCoreId ?? coreId;
         }
 
-        const parent = worlds[targetCluster].neurons[parentId];
-        // Size and position are computed by reflowNeurons after the full
-        // structure is built — set placeholder values here.
+        const parent = isFirstInEmpty ? undefined : worlds[targetCluster].neurons[parentId];
         worlds[targetCluster].neurons[newId] = {
           id: newId,
           label: def.label.toUpperCase(),
-          size: sizeForDepth(1),
+          size: sizeForDepth(isFirstInEmpty ? 0 : 1),
           x: 0,
           y: 0,
-          parentId,
+          parentId: isFirstInEmpty ? null : parentId,
+          ...(isFirstInEmpty ? { isCore: true } : {}),
           content: { body: bodyText },
         };
 
-        if (parent) {
+        if (isFirstInEmpty) {
+          syntheticCoreId = newId;
+        } else if (parent) {
           if (!parent.children) parent.children = [];
           parent.children.push(newId);
         }
-
-        lastAddedId = newId;
       }
 
       // Apply golden-ratio layout to the whole cluster in one pass
@@ -1192,7 +1197,7 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
       Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
       await saveWorldToStorage(targetCluster);
       setWorldVersion(v => v + 1);
-      dispatch({ type: 'NAVIGATE_TO', cluster: targetCluster, nodeId: coreId });
+      dispatch({ type: 'NAVIGATE_TO', cluster: targetCluster, nodeId: syntheticCoreId ?? coreId });
       return;
     }
 
