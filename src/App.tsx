@@ -1044,7 +1044,8 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
     dispatch({ type: 'NAVIGATE_TO', cluster: currentClusterRef.current, nodeId });
   }, []);
 
-  const updateGroupScrub = useCallback((clientY: number) => {
+  // Pure computation — no state read, safe to call from any event handler.
+  const resolveGroupTarget = useCallback((clientY: number): string | null => {
     let best: string | null = null;
     let bestDist = Infinity;
     groupItemRefs.current.forEach((el, id) => {
@@ -1053,8 +1054,12 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
       const dist = Math.abs(clientY - cy);
       if (dist < bestDist) { bestDist = dist; best = id; }
     });
-    setScrubHighlightId(best);
+    return best;
   }, []);
+
+  const updateGroupScrub = useCallback((clientY: number) => {
+    setScrubHighlightId(resolveGroupTarget(clientY));
+  }, [resolveGroupTarget]);
 
   const handleGroupTriggerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
     e.stopPropagation();
@@ -1075,19 +1080,19 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
   const handleGroupTriggerUp = useCallback((e: React.PointerEvent<HTMLElement>) => {
     e.stopPropagation();
     setGroupScrubbing(false);
-    const dy = Math.abs(e.clientY - groupTriggerStartY.current);
-    const hasMoved = dy > 8;
-    const id = scrubHighlightId;
     setScrubHighlightId(null);
-    if (hasMoved) {
-      // Scrub release: navigate to highlighted item and close
+    const dy = Math.abs(e.clientY - groupTriggerStartY.current);
+    if (dy > 8) {
+      // Re-resolve from the final touch position — avoids stale React state in closure
+      // and handles the case where the last touchmove was not fired before touchend.
+      const id = resolveGroupTarget(e.clientY);
       if (id) navigateToGroup(id);
       setGroupDropdownOpen(false);
     } else {
-      // Tap: toggle dropdown open/closed
+      // Tap: toggle dropdown
       setGroupDropdownOpen(!groupDropdownWasOpen.current);
     }
-  }, [scrubHighlightId, navigateToGroup]);
+  }, [resolveGroupTarget, navigateToGroup]);
 
   const closeGroupDropdown = useCallback(() => {
     setGroupDropdownOpen(false);
@@ -2846,7 +2851,7 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
                   key={n.id}
                   ref={el => { if (el) groupItemRefs.current.set(n.id, el); else groupItemRefs.current.delete(n.id); }}
                   onPointerDown={(e) => { e.stopPropagation(); navigateToGroup(n.id); setGroupDropdownOpen(false); }}
-                  className={`uppercase transition-all duration-150 ${isHighlit ? 'text-[9px] font-black opacity-100' : 'text-[7px] opacity-40 font-bold'}`}
+                  className={`uppercase transition-all duration-150 text-[9px] ${isHighlit ? 'font-black opacity-100' : 'opacity-40 font-bold'}`}
                   style={{
                     letterSpacing: '0.35em',
                     lineHeight: '14px',
