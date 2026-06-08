@@ -2834,13 +2834,7 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
               flexDirection: 'column',
               alignItems: 'flex-end',
               gap: '0.7em',
-              background: 'rgba(4,6,12,0.94)',
-              border: '1px solid rgba(255,255,255,0.07)',
-              borderRadius: 10,
-              padding: '10px 14px 10px 20px',
-              backdropFilter: 'blur(18px)',
-              WebkitBackdropFilter: 'blur(18px)',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.72)',
+              padding: '4px 0 0',
               touchAction: 'pan-y',
             }}
             onPointerDown={(e) => e.stopPropagation()}
