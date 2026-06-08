@@ -35,10 +35,10 @@ import { supabase } from './supabase';
 import { pushUndo, performUndo, canUndo, setOnUndoAvailable } from './undoHistory';
 import {
   getCoreId, getMapForCluster, spreadClusterY, findNeuronInDirection,
-  getClusterCrumbs, getLineage, generateNodeId, findRelatedNodeId, positionNearNode,
+  generateNodeId, findRelatedNodeId, positionNearNode,
   reflowNeurons, sizeForDepth,
 } from './utils';
-import type { AppState, AppAction, NeuronContent, MapDef } from './types';
+import type { AppState, AppAction, Neuron, NeuronContent, MapDef } from './types';
 
 const initialState: AppState = {
   viewMode: 'galaxy',
@@ -436,9 +436,6 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
     if (firstId) { setActiveGalaxyMap(firstId); activeGalaxyMapRef.current = firstId; }
   }, [loadVersion]);
 
-  const clusterCrumbs = useMemo(() => getClusterCrumbs(currentCluster), [currentCluster]);
-  const lineage = useMemo(() => getLineage(currentCluster, activeId), [currentCluster, activeId]);
-
   const swellScale = useMemo(() => {
     const node = worlds[currentCluster]?.neurons?.[activeId];
     if (!node) return 1.15;
@@ -725,7 +722,7 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
       }
       if (e.key === 'Backspace') {
         if (vm === 'neuron') {
-          const parentId = worlds[cc]?.neurons?.[ai]?.parentId;
+          const parentId = worlds[cc]?.neurons?.[activeIdRef.current]?.parentId;
           if (parentId && worlds[cc]?.neurons?.[parentId]) {
             dispatch({ type: 'NAVIGATE_TO', cluster: cc, nodeId: parentId });
           }
@@ -1007,6 +1004,76 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
   }, []);
 
   const [worldVersion, setWorldVersion] = useState(0);
+
+  // ── Group switcher (replaces breadcrumb) ────────────────────────────────────
+  const [scrubActive, setScrubActive] = useState(false);
+  const [scrubHighlightId, setScrubHighlightId] = useState<string | null>(null);
+  const groupItemRefs = useRef<Map<string, HTMLElement>>(new Map());
+
+  // Root-level nodes = nodes with no parent (or whose parent is absent from this cluster).
+  const rootGroupNodes = useMemo(() => {
+    const neurons = worlds[currentCluster]?.neurons;
+    if (!neurons) return [];
+    return Object.values(neurons).filter(n => !n.parentId || !neurons[n.parentId as string]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCluster, worldVersion]);
+
+  // Walk up the parentId chain to find which root-level node is the ancestor of activeId.
+  const currentGroupId = useMemo((): string | null => {
+    const neurons = worlds[currentCluster]?.neurons;
+    if (!neurons || !activeId) return null;
+    let id: string = activeId;
+    for (;;) {
+      const n = neurons[id] as Neuron | undefined;
+      if (!n) return id;
+      const pid = n.parentId as string | null | undefined;
+      if (!pid || !neurons[pid]) return id;
+      id = pid;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCluster, activeId, worldVersion]);
+
+  const navigateToGroup = useCallback((nodeId: string) => {
+    panOffsetRef.current = null;
+    setPanOffset(null);
+    neuronZoomRef.current = ZOOM_DEFAULT;
+    setNeuronZoom(ZOOM_DEFAULT);
+    dispatch({ type: 'NAVIGATE_TO', cluster: currentClusterRef.current, nodeId });
+  }, []);
+
+  const updateScrub = useCallback((clientX: number) => {
+    let best: string | null = null;
+    let bestDist = Infinity;
+    groupItemRefs.current.forEach((el, id) => {
+      const rect = el.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const dist = Math.abs(clientX - cx);
+      if (dist < bestDist) { bestDist = dist; best = id; }
+    });
+    setScrubHighlightId(best);
+  }, []);
+
+  const handleGroupPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setScrubActive(true);
+    updateScrub(e.clientX);
+  }, [updateScrub]);
+
+  const handleGroupPointerMove = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    if (!scrubActive) return;
+    e.stopPropagation();
+    updateScrub(e.clientX);
+  }, [scrubActive, updateScrub]);
+
+  const handleGroupPointerUp = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    e.stopPropagation();
+    setScrubActive(false);
+    const id = scrubHighlightId;
+    setScrubHighlightId(null);
+    if (id) navigateToGroup(id);
+  }, [scrubHighlightId, navigateToGroup]);
+  // ── End group switcher ───────────────────────────────────────────────────────
 
   const [undoVisible, setUndoVisible] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2683,14 +2750,44 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
         </div>
       </div>
 
-      <nav className="fixed z-[2000] flex flex-col items-end pointer-events-none" style={{ gap: 0, right: 22, top: 'max(24px, env(safe-area-inset-top))', transform: 'scale(1.1)', transformOrigin: 'top right' }}>
-        {(viewMode === 'cluster' ? clusterCrumbs : lineage).map((crumb, i, arr) => (
-          <div key={`${crumb}-${i}`} className={`uppercase transition-all duration-500 text-right ${i === arr.length - 1 ? 'text-[9px] font-black opacity-100' : 'text-[7px] opacity-40 font-bold'}`}
-            style={{ letterSpacing: '0.35em', lineHeight: '14px' }}>
-            {crumb}
-          </div>
-        ))}
-      </nav>
+      {rootGroupNodes.length > 0 && (
+        <nav
+          className="fixed z-[2000] flex flex-row items-start"
+          style={{
+            gap: '1.4em',
+            right: 22,
+            top: 'max(24px, env(safe-area-inset-top))',
+            transform: 'scale(1.1)',
+            transformOrigin: 'top right',
+            touchAction: 'none',
+            cursor: 'default',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+          }}
+          onPointerDown={handleGroupPointerDown}
+          onPointerMove={handleGroupPointerMove}
+          onPointerUp={handleGroupPointerUp}
+          onPointerCancel={handleGroupPointerUp}
+        >
+          {rootGroupNodes.map(n => {
+            const isActive = scrubActive ? scrubHighlightId === n.id : currentGroupId === n.id;
+            return (
+              <div
+                key={n.id}
+                ref={el => { if (el) groupItemRefs.current.set(n.id, el); else groupItemRefs.current.delete(n.id); }}
+                className={`uppercase transition-all duration-200 ${isActive ? 'text-[9px] font-black opacity-100' : 'text-[7px] opacity-40 font-bold'}`}
+                style={{
+                  letterSpacing: '0.35em',
+                  lineHeight: '14px',
+                  ...(scrubActive && isActive ? { textShadow: '0 0 10px rgba(80,220,200,0.85)' } : {}),
+                }}
+              >
+                {n.label}
+              </div>
+            );
+          })}
+        </nav>
+      )}
 
       <header className="fixed top-6 left-5 z-[2000]">
         <NeuraLogo onClick={() => {
