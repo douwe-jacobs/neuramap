@@ -526,6 +526,8 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
         let renderX = baseX;
         let renderY = baseY;
 
+        if (!isFinite(renderX) || !isFinite(renderY)) return null;
+
         const isBeingDraggedNode = !node.isCore && drag && dragMoved && dragDescendants.has(node.id);
 
         if (!node.isCore) {
@@ -595,7 +597,7 @@ export function JiggleLayer({ currentCluster, activeId, viewMode, jiggleMode, ne
 
             <div
               ref={(el) => { if (el) nodeButtonsElemsRef.current.set(node.id, el); else nodeButtonsElemsRef.current.delete(node.id); }}
-              style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+              style={{ position: 'absolute', inset: 0, pointerEvents: 'none', visibility: (drag && dragMoved && dragDescendants.has(node.id)) ? 'hidden' : undefined }}
             >
             {!node.isCore && (
               <div
