@@ -1005,10 +1005,13 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
 
   const [worldVersion, setWorldVersion] = useState(0);
 
-  // ── Group switcher (replaces breadcrumb) ────────────────────────────────────
-  const [scrubActive, setScrubActive] = useState(false);
+  // ── Group switcher dropdown ──────────────────────────────────────────────────
+  const [groupDropdownOpen, setGroupDropdownOpen] = useState(false);
+  const [groupScrubbing, setGroupScrubbing] = useState(false);
   const [scrubHighlightId, setScrubHighlightId] = useState<string | null>(null);
   const groupItemRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const groupTriggerStartY = useRef(0);
+  const groupDropdownWasOpen = useRef(false);
 
   // Root-level nodes = nodes with no parent (or whose parent is absent from this cluster).
   const rootGroupNodes = useMemo(() => {
@@ -1041,39 +1044,57 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
     dispatch({ type: 'NAVIGATE_TO', cluster: currentClusterRef.current, nodeId });
   }, []);
 
-  const updateScrub = useCallback((clientX: number) => {
+  const updateGroupScrub = useCallback((clientY: number) => {
     let best: string | null = null;
     let bestDist = Infinity;
     groupItemRefs.current.forEach((el, id) => {
       const rect = el.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const dist = Math.abs(clientX - cx);
+      const cy = rect.top + rect.height / 2;
+      const dist = Math.abs(clientY - cy);
       if (dist < bestDist) { bestDist = dist; best = id; }
     });
     setScrubHighlightId(best);
   }, []);
 
-  const handleGroupPointerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
+  const handleGroupTriggerDown = useCallback((e: React.PointerEvent<HTMLElement>) => {
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setScrubActive(true);
-    updateScrub(e.clientX);
-  }, [updateScrub]);
+    groupTriggerStartY.current = e.clientY;
+    groupDropdownWasOpen.current = groupDropdownOpen;
+    setGroupScrubbing(true);
+    setScrubHighlightId(null);
+    setGroupDropdownOpen(true);
+  }, [groupDropdownOpen]);
 
-  const handleGroupPointerMove = useCallback((e: React.PointerEvent<HTMLElement>) => {
-    if (!scrubActive) return;
+  const handleGroupTriggerMove = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    if (!groupScrubbing) return;
     e.stopPropagation();
-    updateScrub(e.clientX);
-  }, [scrubActive, updateScrub]);
+    updateGroupScrub(e.clientY);
+  }, [groupScrubbing, updateGroupScrub]);
 
-  const handleGroupPointerUp = useCallback((e: React.PointerEvent<HTMLElement>) => {
+  const handleGroupTriggerUp = useCallback((e: React.PointerEvent<HTMLElement>) => {
     e.stopPropagation();
-    setScrubActive(false);
+    setGroupScrubbing(false);
+    const dy = Math.abs(e.clientY - groupTriggerStartY.current);
+    const hasMoved = dy > 8;
     const id = scrubHighlightId;
     setScrubHighlightId(null);
-    if (id) navigateToGroup(id);
+    if (hasMoved) {
+      // Scrub release: navigate to highlighted item and close
+      if (id) navigateToGroup(id);
+      setGroupDropdownOpen(false);
+    } else {
+      // Tap: toggle dropdown open/closed
+      setGroupDropdownOpen(!groupDropdownWasOpen.current);
+    }
   }, [scrubHighlightId, navigateToGroup]);
-  // ── End group switcher ───────────────────────────────────────────────────────
+
+  const closeGroupDropdown = useCallback(() => {
+    setGroupDropdownOpen(false);
+    setGroupScrubbing(false);
+    setScrubHighlightId(null);
+  }, []);
+  // ── End group switcher dropdown ──────────────────────────────────────────────
 
   const [undoVisible, setUndoVisible] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2750,44 +2771,102 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
         </div>
       </div>
 
-      {rootGroupNodes.length > 0 && (
-        <nav
-          className="fixed z-[2000] flex flex-row items-start"
+      {rootGroupNodes.length > 0 && (<>
+        {/* Collapsed trigger: active label + chevron */}
+        <div
           style={{
-            gap: '1.4em',
+            position: 'fixed',
             right: 22,
             top: 'max(24px, env(safe-area-inset-top))',
             transform: 'scale(1.1)',
             transformOrigin: 'top right',
+            zIndex: 2000,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.4em',
             touchAction: 'none',
             cursor: 'default',
             userSelect: 'none',
             WebkitUserSelect: 'none',
           }}
-          onPointerDown={handleGroupPointerDown}
-          onPointerMove={handleGroupPointerMove}
-          onPointerUp={handleGroupPointerUp}
-          onPointerCancel={handleGroupPointerUp}
+          onPointerDown={handleGroupTriggerDown}
+          onPointerMove={handleGroupTriggerMove}
+          onPointerUp={handleGroupTriggerUp}
+          onPointerCancel={handleGroupTriggerUp}
         >
-          {rootGroupNodes.map(n => {
-            const isActive = scrubActive ? scrubHighlightId === n.id : currentGroupId === n.id;
-            return (
-              <div
-                key={n.id}
-                ref={el => { if (el) groupItemRefs.current.set(n.id, el); else groupItemRefs.current.delete(n.id); }}
-                className={`uppercase transition-all duration-200 ${isActive ? 'text-[9px] font-black opacity-100' : 'text-[7px] opacity-40 font-bold'}`}
-                style={{
-                  letterSpacing: '0.35em',
-                  lineHeight: '14px',
-                  ...(scrubActive && isActive ? { textShadow: '0 0 10px rgba(80,220,200,0.85)' } : {}),
-                }}
-              >
-                {n.label}
-              </div>
-            );
-          })}
-        </nav>
-      )}
+          <span
+            className="uppercase font-black"
+            style={{ fontSize: 9, letterSpacing: '0.35em', lineHeight: '14px', opacity: 1 }}
+          >
+            {(rootGroupNodes.find(n => n.id === currentGroupId) ?? rootGroupNodes[0])?.label ?? ''}
+          </span>
+          <span
+            style={{
+              fontSize: 7,
+              opacity: 0.45,
+              lineHeight: '14px',
+              display: 'inline-block',
+              transform: groupDropdownOpen ? 'rotate(180deg)' : 'none',
+              transition: 'transform 0.18s ease',
+            }}
+          >
+            ▼
+          </span>
+        </div>
+
+        {/* Dropdown */}
+        {groupDropdownOpen && (<>
+          {/* Backdrop — closes on outside touch */}
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 1998 }}
+            onPointerDown={closeGroupDropdown}
+          />
+          {/* List */}
+          <div
+            style={{
+              position: 'fixed',
+              right: 22,
+              top: 'calc(max(24px, env(safe-area-inset-top)) + 22px)',
+              maxHeight: 'calc(100dvh - max(24px, env(safe-area-inset-top)) - 52px)',
+              overflowY: 'auto',
+              zIndex: 2001,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              gap: '0.7em',
+              background: 'rgba(4,6,12,0.94)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: 10,
+              padding: '10px 14px 10px 20px',
+              backdropFilter: 'blur(18px)',
+              WebkitBackdropFilter: 'blur(18px)',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.72)',
+              touchAction: 'pan-y',
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {rootGroupNodes.map(n => {
+              const isHighlit = groupScrubbing ? scrubHighlightId === n.id : currentGroupId === n.id;
+              return (
+                <div
+                  key={n.id}
+                  ref={el => { if (el) groupItemRefs.current.set(n.id, el); else groupItemRefs.current.delete(n.id); }}
+                  onPointerDown={(e) => { e.stopPropagation(); navigateToGroup(n.id); setGroupDropdownOpen(false); }}
+                  className={`uppercase transition-all duration-150 ${isHighlit ? 'text-[9px] font-black opacity-100' : 'text-[7px] opacity-40 font-bold'}`}
+                  style={{
+                    letterSpacing: '0.35em',
+                    lineHeight: '14px',
+                    cursor: 'pointer',
+                    ...(groupScrubbing && isHighlit ? { textShadow: '0 0 10px rgba(80,220,200,0.85)' } : {}),
+                  }}
+                >
+                  {n.label}
+                </div>
+              );
+            })}
+          </div>
+        </>)}
+      </>)}
 
       <header className="fixed top-6 left-5 z-[2000]">
         <NeuraLogo onClick={() => {

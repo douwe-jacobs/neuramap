@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
@@ -10,12 +10,8 @@ export function AuthBanner({ user }: AuthBannerProps) {
   const [dismissed, setDismissed] = useState(
     () => sessionStorage.getItem('neura_auth_skipped') === '1'
   );
-  const [menuOpen, setMenuOpen] = useState(false);
 
   const isAnonymous = !user || user.is_anonymous;
-  const email = user?.email;
-  const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;
-  const initial = email?.[0]?.toUpperCase() ?? '?';
 
   const handleSignIn = async () => {
     await supabase.auth.signInWithOAuth({
@@ -29,129 +25,8 @@ export function AuthBanner({ user }: AuthBannerProps) {
     setDismissed(true);
   };
 
-  const handleSignOut = async () => {
-    setMenuOpen(false);
-    await supabase.auth.signOut();
-    // App will re-create an anonymous session via onAuthStateChange
-  };
-
-  // ── Signed-in user: avatar + dropdown near the logo ──────────────────────
-  if (!isAnonymous) {
-    return (
-      <div
-        style={{
-          position: 'fixed',
-          top: 'max(28px, env(safe-area-inset-top))',
-          left: 64,
-          zIndex: 2000,
-        }}
-      >
-        <button
-          onClick={() => setMenuOpen(v => !v)}
-          style={{
-            width: 26,
-            height: 26,
-            borderRadius: '50%',
-            overflow: 'hidden',
-            border: '1.5px solid rgba(255,255,255,0.18)',
-            background: 'rgba(255,255,255,0.06)',
-            cursor: 'pointer',
-            padding: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt=""
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            />
-          ) : (
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>
-              {initial}
-            </span>
-          )}
-        </button>
-
-        {menuOpen && (
-          <>
-            <div
-              style={{ position: 'fixed', inset: 0, zIndex: 2001 }}
-              onClick={() => setMenuOpen(false)}
-            />
-            <div
-              style={{
-                position: 'absolute',
-                top: 34,
-                left: 0,
-                background: 'rgba(8,10,18,0.98)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: 11,
-                padding: '6px 0',
-                minWidth: 190,
-                boxShadow: '0 12px 40px rgba(0,0,0,0.7)',
-                zIndex: 2002,
-              }}
-            >
-              {email && (
-                <div
-                  style={{
-                    padding: '7px 14px 10px',
-                    borderBottom: '1px solid rgba(255,255,255,0.07)',
-                    marginBottom: 4,
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 10,
-                      color: 'rgba(255,255,255,0.35)',
-                      letterSpacing: '0.1em',
-                      textTransform: 'uppercase',
-                      marginBottom: 3,
-                    }}
-                  >
-                    Signed in as
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: 'rgba(255,255,255,0.7)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {email}
-                  </div>
-                </div>
-              )}
-              <button
-                onClick={handleSignOut}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: '8px 14px',
-                  textAlign: 'left',
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'rgba(255,255,255,0.55)',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  letterSpacing: '0.04em',
-                }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.88)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(255,255,255,0.55)'; }}
-              >
-                Sign out
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
+  // Signed-in users: no top-bar avatar (removed to free horizontal space).
+  if (!isAnonymous) return null;
 
   // ── Anonymous: one-time sign-in prompt ────────────────────────────────────
   if (dismissed) return null;
