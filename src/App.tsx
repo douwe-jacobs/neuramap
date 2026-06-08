@@ -145,15 +145,16 @@ function AppLoader() {
         console.log('[neura] init: loadFromStorage start');
         await loadFromStorage();
         console.log('[neura] init: loadFromStorage done');
-        // Ensure at least one map exists — creates an empty root world for brand-new users
-        if (GALAXY_MAPS.length === 0) {
+        // Always open on the dedicated 'root' map. Create it if it doesn't exist yet
+        // (brand-new users) so it's always available regardless of other stored maps.
+        if (!GALAXY_MAPS.find(m => m.id === 'root')) {
           const rootMap: MapDef = { id: 'root', label: '', rootCluster: 'root', clusterIds: ['root'] };
           worlds['root'] = { label: '', neurons: {} };
           GALAXY_MAPS.push(rootMap);
           CLUSTER_LISTS['root'] = ['root'];
           await saveMapToStorage(rootMap, { root: worlds['root'] }, {});
         }
-        setEntryCluster(GALAXY_MAPS[0].rootCluster);
+        setEntryCluster('root');
         setHydrated(true);
       }
     };
@@ -604,7 +605,6 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
       if (vm === 'cluster') {
         const parentCluster = clusterMeta[cc]?.parentClusterId;
         if (parentCluster) dispatch({ type: 'NAVIGATE_CLUSTER', cluster: parentCluster });
-        else dispatch({ type: 'NAVIGATE_GALAXY' });
         return;
       }
       return;
@@ -724,19 +724,16 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
         return;
       }
       if (e.key === 'Backspace') {
-        if (DISABLE_CLUSTER_VIEW) {
-          if (vm === 'neuron') dispatch({ type: 'NAVIGATE_GALAXY' });
-        } else {
-          if (vm === 'neuron') dispatch({ type: 'SET_VIEW_MODE', payload: 'cluster' });
-          else if (vm === 'cluster') {
-            const parentCluster = clusterMeta[cc]?.parentClusterId;
-            if (parentCluster) dispatch({ type: 'NAVIGATE_CLUSTER', cluster: parentCluster });
-            else dispatch({ type: 'NAVIGATE_GALAXY' });
+        if (vm === 'neuron') {
+          const parentId = worlds[cc]?.neurons?.[ai]?.parentId;
+          if (parentId && worlds[cc]?.neurons?.[parentId]) {
+            dispatch({ type: 'NAVIGATE_TO', cluster: cc, nodeId: parentId });
           }
+          // Already at top — do nothing (never navigate to galaxy)
         }
         return;
       }
-      if (e.key === 'Escape') { dispatch({ type: 'NAVIGATE_GALAXY' }); return; }
+      if (e.key === 'Escape') { return; }
       if (vm === 'galaxy') {
         const dirVec: Record<string, [number, number]> = {
           ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1],
@@ -890,7 +887,7 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
       } else {
         if      (ratio < 0.7 && vm === 'neuron')  { dispatch({ type: 'SET_VIEW_MODE', payload: 'cluster' }); initialDist.current = null; }
         else if (ratio > 1.3 && vm === 'cluster') { dispatch({ type: 'SET_VIEW_MODE', payload: 'neuron' });  initialDist.current = null; }
-        else if (ratio < 0.7 && vm === 'cluster') { const parentC = clusterMeta[currentClusterRef.current]?.parentClusterId; if (parentC) dispatch({ type: 'NAVIGATE_CLUSTER', cluster: parentC }); else dispatch({ type: 'NAVIGATE_GALAXY' }); initialDist.current = null; }
+        else if (ratio < 0.7 && vm === 'cluster') { const parentC = clusterMeta[currentClusterRef.current]?.parentClusterId; if (parentC) dispatch({ type: 'NAVIGATE_CLUSTER', cluster: parentC }); initialDist.current = null; }
         else if (ratio > 1.3 && vm === 'galaxy')  { const mapCfg = GALAXY_MAPS.find(m => m.id === activeGalaxyMapRef.current) || GALAXY_MAPS[0]; dispatch({ type: 'NAVIGATE_CLUSTER', cluster: mapCfg.rootCluster }); initialDist.current = null; }
       }
       return;
@@ -2692,13 +2689,13 @@ function App({ user, loadVersion, initialCluster }: { user: User | null; loadVer
 
       <header className="fixed top-6 left-5 z-[2000]">
         <NeuraLogo onClick={() => {
-          if (DISABLE_CLUSTER_VIEW) {
-            dispatch({ type: 'NAVIGATE_GALAXY' });
-          } else if (viewMode === 'neuron') {
-            const coreId = getCoreId(currentCluster);
-            if (activeId !== coreId) dispatch({ type: 'NAVIGATE_TO', cluster: currentCluster, nodeId: coreId });
-          } else {
-            dispatch({ type: 'NAVIGATE_GALAXY' });
+          // Navigate to the root of the current map (isCore node, or first node if none).
+          // Do nothing on empty canvas. Never navigate to galaxy.
+          const neurons = worlds[currentCluster]?.neurons;
+          if (!neurons) return;
+          const targetId = Object.values(neurons).find(n => n.isCore)?.id ?? Object.keys(neurons)[0];
+          if (targetId && activeId !== targetId) {
+            dispatch({ type: 'NAVIGATE_TO', cluster: currentCluster, nodeId: targetId });
           }
         }} />
       </header>

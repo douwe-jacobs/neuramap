@@ -230,11 +230,12 @@ function hashId(id: string): number {
  */
 export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions = false): void {
   const coreNode = Object.values(neurons).find(n => n.isCore);
-  if (!coreNode) return;
+  // Without a core node we can still update sizes (preservePositions path); layout requires core.
+  if (!coreNode && !preservePositions) return;
 
   // ── Step 1: BFS depth assignment ────────────────────────────────────────────
-  const depths: Record<string, number> = { [coreNode.id]: 0 };
-  {
+  const depths: Record<string, number> = coreNode ? { [coreNode.id]: 0 } : {};
+  if (coreNode) {
     const q: string[] = [coreNode.id];
     while (q.length > 0) {
       const id = q.shift()!;
@@ -242,6 +243,24 @@ export function reflowNeurons(neurons: Record<string, Neuron>, preservePositions
         if (neurons[cid] && depths[cid] === undefined) {
           depths[cid] = depths[id] + 1;
           q.push(cid);
+        }
+      }
+    }
+  }
+  // Second pass: assign depths to free-floating trees not reachable from coreNode.
+  // Any node whose parent is absent/null is treated as a local root (depth 0).
+  for (const n of Object.values(neurons)) {
+    if (depths[n.id] !== undefined) continue;
+    if (!n.parentId || !neurons[n.parentId]) {
+      depths[n.id] = 0;
+      const q2: string[] = [n.id];
+      while (q2.length > 0) {
+        const id2 = q2.shift()!;
+        for (const cid of neurons[id2]?.children || []) {
+          if (neurons[cid] && depths[cid] === undefined) {
+            depths[cid] = depths[id2] + 1;
+            q2.push(cid);
+          }
         }
       }
     }
