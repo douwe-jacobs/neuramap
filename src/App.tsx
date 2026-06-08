@@ -119,6 +119,7 @@ function AppLoader() {
   const [hydrated, setHydrated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [loadVersion, setLoadVersion] = useState(0);
+  const [entryCluster, setEntryCluster] = useState('root');
 
   useEffect(() => {
     let cancelled = false;
@@ -143,7 +144,16 @@ function AppLoader() {
       if (!cancelled) {
         console.log('[neura] init: loadFromStorage start');
         await loadFromStorage();
-        console.log('[neura] init: loadFromStorage done → hydrated');
+        console.log('[neura] init: loadFromStorage done');
+        // Ensure at least one map exists — creates an empty root world for brand-new users
+        if (GALAXY_MAPS.length === 0) {
+          const rootMap: MapDef = { id: 'root', label: '', rootCluster: 'root', clusterIds: ['root'] };
+          worlds['root'] = { label: '', neurons: {} };
+          GALAXY_MAPS.push(rootMap);
+          CLUSTER_LISTS['root'] = ['root'];
+          await saveMapToStorage(rootMap, { root: worlds['root'] }, {});
+        }
+        setEntryCluster(GALAXY_MAPS[0].rootCluster);
         setHydrated(true);
       }
     };
@@ -202,13 +212,17 @@ function AppLoader() {
       <div style={{ color: 'rgba(255,255,255,0.15)', fontSize: 11, letterSpacing: '0.3em', textTransform: 'uppercase', fontFamily: 'monospace' }}>loading</div>
     </div>
   );
-  return <App user={user} loadVersion={loadVersion} />;
+  return <App user={user} loadVersion={loadVersion} initialCluster={entryCluster} />;
 }
 
 export default AppLoader;
 
-function App({ user, loadVersion }: { user: User | null; loadVersion: number }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+function App({ user, loadVersion, initialCluster }: { user: User | null; loadVersion: number; initialCluster: string }) {
+  const [state, dispatch] = useReducer(reducer, null, () => ({
+    ...initialState,
+    viewMode: 'neuron' as const,
+    currentCluster: initialCluster,
+  }));
   const { viewMode, currentCluster, activeId, isTransitioning, selectedTarget, portalPhase, frozenOffset, frozenSwellScale, justLanded, showOverlay, viewTransPhase } = state;
 
   const [activeGalaxyMap, setActiveGalaxyMap] = useState('work');
@@ -242,6 +256,7 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
   const jiggleDragRef = useRef<JiggleDragState | null>(null);
   const [newNodeId, setNewNodeId] = useState<string | null>(null);
   const [addNodeParentId, setAddNodeParentId] = useState<string | null>(null);
+  const [addingFreeNode, setAddingFreeNode] = useState(false);
   const [jigglePan, setJigglePan] = useState<{ x: number; y: number } | null>(null);
   const jigglePanRef = useRef<{ x: number; y: number } | null>(null);
   jigglePanRef.current = jigglePan;
@@ -1267,6 +1282,35 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
     dispatch({ type: 'NAVIGATE_TO', cluster: currentCluster, nodeId: newId });
   }, [currentCluster, dispatch]);
 
+  const handleAddFreeNode = useCallback(async (label: string, insight: string) => {
+    const cc = currentClusterRef.current;
+    if (!worlds[cc]) worlds[cc] = { label: '', neurons: {} };
+    const neurons = worlds[cc].neurons;
+    const newId = generateNodeId();
+    // Place at viewport center in world-space, with small random spread so
+    // multiple free nodes don't land on top of each other
+    const ai = activeIdRef.current;
+    const pan = panOffsetRef.current;
+    const activeNode = neurons[ai];
+    const cx = pan?.x ?? activeNode?.x ?? 0;
+    const cy = pan?.y ?? activeNode?.y ?? 0;
+    neurons[newId] = {
+      id: newId,
+      label: label.toUpperCase(),
+      size: 300,
+      x: cx + (Math.random() - 0.5) * 250,
+      y: cy + (Math.random() - 0.5) * 250,
+      parentId: null,
+      ...(insight ? { content: { body: insight } } : {}),
+    };
+    Object.keys(_worldColorCache).forEach(k => delete _worldColorCache[k]);
+    await saveWorldToStorage(cc);
+    setWorldVersion(v => v + 1);
+    panOffsetRef.current = null;
+    setPanOffset(null);
+    dispatch({ type: 'NAVIGATE_TO', cluster: cc, nodeId: newId });
+  }, []);
+
   const introScreen = introPhase !== 'done'
     ? <IntroScreen phase={introPhase} onTap={handleIntroTap} />
     : null;
@@ -1837,6 +1881,7 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
       });
     }
     if (changed) {
+      console.log(`[neura:db] saveGalaxyBasePositions triggered from render body at ${performance.now().toFixed(1)}`);
       saveGalaxyBasePositionsToStorage({ ...known });
     }
   }
@@ -2700,6 +2745,38 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
 
       {introScreen}
 
+      {/* Free-node "+" button — only in neuron view, idle, intro done, no overlay */}
+      {!isInGalaxy && viewTransPhase === 'idle' && introPhase === 'done' && !showOverlay && !jiggleMode && (
+        <button
+          onPointerDown={e => e.stopPropagation()}
+          onClick={() => setAddingFreeNode(true)}
+          style={{
+            position: 'fixed',
+            bottom: 'max(48px, env(safe-area-inset-bottom, 48px))',
+            right: 28,
+            width: 52,
+            height: 52,
+            borderRadius: '50%',
+            background: 'rgba(80,220,200,0.18)',
+            border: '1.5px solid rgba(80,220,200,0.6)',
+            color: 'rgba(80,220,200,1)',
+            fontSize: 28,
+            fontWeight: 300,
+            cursor: 'pointer',
+            zIndex: 902,
+            boxShadow: '0 4px 24px rgba(0,0,0,0.6), 0 0 24px rgba(80,220,200,0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            transition: 'transform 0.2s ease, background 0.15s ease',
+          }}
+        >
+          <span style={{ fontSize: 30, lineHeight: 1, marginTop: -2 }}>+</span>
+        </button>
+      )}
+
       <JiggleLayer
         currentCluster={currentCluster}
         activeId={activeId}
@@ -2753,14 +2830,19 @@ function App({ user, loadVersion }: { user: User | null; loadVersion: number }) 
         dispatch={dispatch}
       />
 
-      {addNodeParentId && (
+      {(addNodeParentId || addingFreeNode) && (
         <AddNodeModal
           onConfirm={(label, insight) => {
-            const pid = addNodeParentId;
-            setAddNodeParentId(null);
-            handleAddNode(pid, label, insight);
+            if (addingFreeNode) {
+              setAddingFreeNode(false);
+              handleAddFreeNode(label, insight);
+            } else {
+              const pid = addNodeParentId!;
+              setAddNodeParentId(null);
+              handleAddNode(pid, label, insight);
+            }
           }}
-          onCancel={() => setAddNodeParentId(null)}
+          onCancel={() => { setAddNodeParentId(null); setAddingFreeNode(false); }}
         />
       )}
 
